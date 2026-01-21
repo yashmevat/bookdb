@@ -71,7 +71,7 @@ export default function PagesPage() {
 
   // Split content by page height to fit book dimensions
   // Simpler approach - add more content to fill gaps
-const splitContentByHeight = (htmlContent, maxHeight = 680) => { // Reduced from 700 to 680
+const splitContentByHeight = (htmlContent, maxHeight = 680) => {
   const pages = [];
   
   const container = document.createElement('div');
@@ -93,27 +93,88 @@ const splitContentByHeight = (htmlContent, maxHeight = 680) => { // Reduced from
   let currentPage = [];
   
   for (let element of allElements) {
-    // Add element to current page
+    const tagName = element.tagName.toLowerCase();
+    const originalContent = element.textContent || '';
+    
+    // Pehle pura element try karo
     currentPage.push(element.outerHTML);
     container.innerHTML = currentPage.join('');
     
-    // Check height
+    // Agar height exceed ho gayi
     if (container.scrollHeight > maxHeight) {
-      // Remove last element
+      // Last element remove karo
       currentPage.pop();
       
-      // Save page if not empty
-      if (currentPage.length > 0) {
-        pages.push(currentPage.join(''));
-        currentPage = [element.outerHTML];
+      // Ab is element ko chunks mein todo
+      if (originalContent.trim()) {
+        // Words mein split karo
+        const words = originalContent.split(/\s+/);
+        let currentChunk = '';
+        
+        for (let i = 0; i < words.length; i++) {
+          const testChunk = currentChunk + (currentChunk ? ' ' : '') + words[i];
+          
+          // Test element banao with current chunk
+          const testElement = document.createElement(tagName);
+          testElement.innerHTML = testChunk;
+          
+          // Copy attributes
+          Array.from(element.attributes).forEach(attr => {
+            testElement.setAttribute(attr.name, attr.value);
+          });
+          
+          // Test karo ki fit ho raha hai ya nahi
+          const tempPage = [...currentPage, testElement.outerHTML];
+          container.innerHTML = tempPage.join('');
+          
+          if (container.scrollHeight > maxHeight && currentChunk) {
+            // Current chunk ko save karo aur naya page shuru karo
+            const chunkElement = document.createElement(tagName);
+            chunkElement.innerHTML = currentChunk;
+            Array.from(element.attributes).forEach(attr => {
+              chunkElement.setAttribute(attr.name, attr.value);
+            });
+            
+            currentPage.push(chunkElement.outerHTML);
+            
+            // Save current page
+            if (currentPage.length > 0) {
+              pages.push(currentPage.join(''));
+            }
+            
+            // Naya page shuru karo
+            currentPage = [];
+            currentChunk = words[i];
+          } else {
+            // Add word to current chunk
+            currentChunk = testChunk;
+          }
+        }
+        
+        // Remaining chunk ko add karo
+        if (currentChunk.trim()) {
+          const chunkElement = document.createElement(tagName);
+          chunkElement.innerHTML = currentChunk;
+          Array.from(element.attributes).forEach(attr => {
+            chunkElement.setAttribute(attr.name, attr.value);
+          });
+          currentPage.push(chunkElement.outerHTML);
+        }
       } else {
-        // Single element too large, add it anyway
-        currentPage = [element.outerHTML];
+        // Empty element - directly add
+        currentPage.push(element.outerHTML);
+      }
+      
+      // Check current page height again
+      container.innerHTML = currentPage.join('');
+      if (container.scrollHeight > maxHeight && currentPage.length > 0) {
+        pages.push(currentPage.join(''));
+        currentPage = [];
       }
     }
   }
   
-  // Add remaining
+  // Add remaining content
   if (currentPage.length > 0) {
     pages.push(currentPage.join(''));
   }
@@ -121,6 +182,7 @@ const splitContentByHeight = (htmlContent, maxHeight = 680) => { // Reduced from
   document.body.removeChild(container);
   return pages.length > 0 ? pages : [htmlContent];
 };
+
 
 
   // Preview pagination before saving
@@ -146,7 +208,7 @@ const splitContentByHeight = (htmlContent, maxHeight = 680) => { // Reduced from
       `Total Words: ${totalWords}\n` +
       `Total Pages: ${pages.length}\n` +
       `Average words/page: ${Math.round(totalWords / pages.length)}\n\n` +
-      `${autoSplit ? '✅ Pages will fit perfectly in book (670×800px)!' : '📄 Using manual page breaks'}`
+      `${autoSplit ? '✅ Pages will fit perfectly in book (670×700px)!' : '📄 Using manual page breaks'}`
     );
   };
 
