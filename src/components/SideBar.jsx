@@ -29,7 +29,7 @@ export default function Sidebar() {
         <h2 className="text-2xl font-bold">
           {user.role === 'superadmin' ? 'Superadmin Panel' : 'Author Panel'}
         </h2>
-        <p className="text-sm text-gray-400 mt-2">Welcome, {user.username}</p>
+        <p className="text-sm text-gray-400 mt-2">Welcome👋, {user.username}</p>
       </div>
       
       <nav className="flex-1">
