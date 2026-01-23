@@ -1,20 +1,7 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import dynamic from 'next/dynamic';
-
-const CKEditorComponent = dynamic(
-  () => import('../../components/CKEditorComponent'),
-  { 
-    ssr: false,
-    loading: () => (
-      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-        <p className="text-yellow-800">⏳ Loading editor...</p>
-      </div>
-    )
-  }
-);
 
 export default function PagesPage() {
   const params = useParams();
@@ -23,16 +10,53 @@ export default function PagesPage() {
   const [pages, setPages] = useState([]);
   const [chapterTitle, setChapterTitle] = useState('');
   const [bookId, setBookId] = useState(null);
-  const [formData, setFormData] = useState({ content: '' });
-  const [editMode, setEditMode] = useState(false);
-  const [editId, setEditId] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [editorInstance, setEditorInstance] = useState(null);
-  const [autoSplit, setAutoSplit] = useState(false);
+  const [quillLoaded, setQuillLoaded] = useState(false);
+  
+  const [livePages, setLivePages] = useState([
+    { id: 'page-1', content: '', existingPageId: null }
+  ]);
+  const [selectedPageIndex, setSelectedPageIndex] = useState(0);
+  const [editingPageId, setEditingPageId] = useState(null);
+  const quillRefs = useRef({});
+
+  // A4 EXACT DIMENSIONS (96 DPI standard)
+  // A4 = 210mm × 297mm = 794px × 1123px at 96 DPI
+  const PAGE_WIDTH = 794;
+  const PAGE_HEIGHT = 1123;
+  const HEADER_HEIGHT = 60;
+  const FOOTER_HEIGHT = 50;
+  const CONTENT_PADDING = 40; // More padding for A4
+  const CONTENT_HEIGHT = PAGE_HEIGHT - HEADER_HEIGHT - FOOTER_HEIGHT; // 1013px
+  const CONTENT_WIDTH = PAGE_WIDTH - (CONTENT_PADDING * 2); // 714px
 
   useEffect(() => {
+    const loadQuill = async () => {
+      const link = document.createElement('link');
+      link.href = 'https://cdn.quilljs.com/1.3.6/quill.snow.css';
+      link.rel = 'stylesheet';
+      document.head.appendChild(link);
+
+      const script = document.createElement('script');
+      script.src = 'https://cdn.quilljs.com/1.3.6/quill.js';
+      script.onload = () => setQuillLoaded(true);
+      document.body.appendChild(script);
+    };
+
+    loadQuill();
     fetchPages();
     fetchChapterDetails();
+
+    return () => {
+      Object.values(quillRefs.current).forEach(quill => {
+        if (quill) {
+          const container = quill.container;
+          if (container && container.parentNode) {
+            container.parentNode.innerHTML = '';
+          }
+        }
+      });
+    };
   }, [chapterId]);
 
   const fetchChapterDetails = async () => {
@@ -52,222 +76,309 @@ export default function PagesPage() {
     }
   };
 
-  const handleEditorChange = (data) => {
-    setFormData({ content: data });
-  };
+  const splitContentIntoPages = (htmlContent) => {
+    const tempDiv = document.createElement('div');
+    tempDiv.style.cssText = `
+      position: absolute;
+      visibility: hidden;
+      width: ${CONTENT_WIDTH}px;
+      padding: 0;
+      font-size: 16px;
+      line-height: 1.6;
+      font-family: 'Georgia', 'Times New Roman', serif;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+    `;
+    document.body.appendChild(tempDiv);
 
-  const handleEditorReady = (editor) => {
-    setEditorInstance(editor);
-  };
+    const pages = [];
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(`<div>${htmlContent}</div>`, 'text/html');
+    const blocks = Array.from(doc.body.querySelector('div').children);
 
-  // Count words in HTML content
-  const countWords = (html) => {
-    const temp = document.createElement('div');
-    temp.innerHTML = html;
-    const text = temp.textContent || temp.innerText || '';
-    const words = text.trim().split(/\s+/).filter(word => word.length > 0);
-    return words.length;
-  };
+    let currentPageHTML = '';
+    let currentHeight = 0;
 
-  // Split content by page height to fit book dimensions
-  // Simpler approach - add more content to fill gaps
-const splitContentByHeight = (htmlContent, maxHeight = 680) => {
-  const pages = [];
-  
-  const container = document.createElement('div');
-  container.style.cssText = `
-    position: absolute;
-    visibility: hidden;
-    width: 606px;
-    padding: 32px;
-    font-size: 16px;
-    line-height: 1.75;
-    font-family: system-ui, -apple-system, sans-serif;
-  `;
-  document.body.appendChild(container);
-  
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(htmlContent, 'text/html');
-  const allElements = Array.from(doc.body.children);
-  
-  let currentPage = [];
-  
-  for (let element of allElements) {
-    const tagName = element.tagName.toLowerCase();
-    const originalContent = element.textContent || '';
-    
-    // Pehle pura element try karo
-    currentPage.push(element.outerHTML);
-    container.innerHTML = currentPage.join('');
-    
-    // Agar height exceed ho gayi
-    if (container.scrollHeight > maxHeight) {
-      // Last element remove karo
-      currentPage.pop();
+    for (let blockIdx = 0; blockIdx < blocks.length; blockIdx++) {
+      const block = blocks[blockIdx];
+      const tagName = block.tagName.toLowerCase();
+      let blockAttrs = '';
       
-      // Ab is element ko chunks mein todo
-      if (originalContent.trim()) {
-        // Words mein split karo
-        const words = originalContent.split(/\s+/);
-        let currentChunk = '';
-        
-        for (let i = 0; i < words.length; i++) {
-          const testChunk = currentChunk + (currentChunk ? ' ' : '') + words[i];
+      for (let attr of block.attributes) {
+        blockAttrs += ` ${attr.name}="${attr.value}"`;
+      }
+
+      // Test if block fits
+      const blockHTML = `<${tagName}${blockAttrs}>${block.innerHTML}</${tagName}>`;
+      const testHTML = currentPageHTML + blockHTML;
+      tempDiv.innerHTML = testHTML;
+      const testHeight = tempDiv.scrollHeight;
+
+      if (testHeight > CONTENT_HEIGHT) {
+        // Block doesn't fit, need to split
+        if (currentPageHTML.trim()) {
+          pages.push(currentPageHTML.trim());
+          currentPageHTML = '';
+        }
+
+        // Try to split block by sentences
+        const sentences = block.innerHTML.split(/(?<=[.!?])\s+/);
+        let sentenceBuffer = '';
+
+        for (let sentence of sentences) {
+          if (!sentence.trim()) continue;
+
+          const testSentence = sentenceBuffer 
+            ? `${sentenceBuffer} ${sentence}` 
+            : sentence;
           
-          // Test element banao with current chunk
-          const testElement = document.createElement(tagName);
-          testElement.innerHTML = testChunk;
-          
-          // Copy attributes
-          Array.from(element.attributes).forEach(attr => {
-            testElement.setAttribute(attr.name, attr.value);
-          });
-          
-          // Test karo ki fit ho raha hai ya nahi
-          const tempPage = [...currentPage, testElement.outerHTML];
-          container.innerHTML = tempPage.join('');
-          
-          if (container.scrollHeight > maxHeight && currentChunk) {
-            // Current chunk ko save karo aur naya page shuru karo
-            const chunkElement = document.createElement(tagName);
-            chunkElement.innerHTML = currentChunk;
-            Array.from(element.attributes).forEach(attr => {
-              chunkElement.setAttribute(attr.name, attr.value);
-            });
-            
-            currentPage.push(chunkElement.outerHTML);
-            
-            // Save current page
-            if (currentPage.length > 0) {
-              pages.push(currentPage.join(''));
+          const testHTML = `<${tagName}${blockAttrs}>${testSentence}</${tagName}>`;
+          tempDiv.innerHTML = currentPageHTML + testHTML;
+
+          if (tempDiv.scrollHeight > CONTENT_HEIGHT) {
+            // Sentence doesn't fit
+            if (sentenceBuffer) {
+              const sentenceHTML = `<${tagName}${blockAttrs}>${sentenceBuffer}</${tagName}>`;
+              const pageToSave = (currentPageHTML + sentenceHTML).trim();
+              
+              if (pageToSave) {
+                pages.push(pageToSave);
+              }
+              currentPageHTML = '';
+              sentenceBuffer = sentence;
+            } else {
+              // Even single sentence is too big, split by words
+              const words = sentence.split(/\s+/);
+              let wordBuffer = '';
+
+              for (let word of words) {
+                const testWord = wordBuffer ? `${wordBuffer} ${word}` : word;
+                const testHTML = `<${tagName}${blockAttrs}>${testWord}</${tagName}>`;
+                tempDiv.innerHTML = currentPageHTML + testHTML;
+
+                if (tempDiv.scrollHeight > CONTENT_HEIGHT && wordBuffer) {
+                  const wordHTML = `<${tagName}${blockAttrs}>${wordBuffer}</${tagName}>`;
+                  pages.push((currentPageHTML + wordHTML).trim());
+                  currentPageHTML = '';
+                  wordBuffer = word;
+                } else {
+                  wordBuffer = testWord;
+                }
+              }
+
+              if (wordBuffer) {
+                sentenceBuffer = wordBuffer;
+              }
             }
-            
-            // Naya page shuru karo
-            currentPage = [];
-            currentChunk = words[i];
           } else {
-            // Add word to current chunk
-            currentChunk = testChunk;
+            sentenceBuffer = testSentence;
           }
         }
-        
-        // Remaining chunk ko add karo
-        if (currentChunk.trim()) {
-          const chunkElement = document.createElement(tagName);
-          chunkElement.innerHTML = currentChunk;
-          Array.from(element.attributes).forEach(attr => {
-            chunkElement.setAttribute(attr.name, attr.value);
-          });
-          currentPage.push(chunkElement.outerHTML);
+
+        if (sentenceBuffer) {
+          const finalHTML = `<${tagName}${blockAttrs}>${sentenceBuffer}</${tagName}>`;
+          currentPageHTML += finalHTML;
         }
       } else {
-        // Empty element - directly add
-        currentPage.push(element.outerHTML);
+        currentPageHTML = testHTML;
       }
+    }
+
+    // Add remaining content
+    if (currentPageHTML.trim() && currentPageHTML !== '<p><br></p>') {
+      pages.push(currentPageHTML.trim());
+    }
+
+    document.body.removeChild(tempDiv);
+    return pages.length > 0 ? pages : [htmlContent];
+  };
+
+  const initQuill = (index) => {
+    if (!window.Quill) return;
+
+    const editorId = `editor-${index}`;
+    const container = document.getElementById(editorId);
+    
+    if (!container) return;
+
+    if (quillRefs.current[index]) {
+      container.innerHTML = '';
+    }
+
+    const quill = new window.Quill(`#${editorId}`, {
+      theme: 'snow',
+      modules: {
+        toolbar: [
+          [{ 'header': [1, 2, 3, false] }],
+          ['bold', 'italic', 'underline', 'strike'],
+          [{ 'color': [] }, { 'background': [] }],
+          [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+          [{ 'align': [] }],
+          ['link', 'image'],
+          ['clean']
+        ],
+        clipboard: {
+          matchVisual: false
+        }
+      },
+      placeholder: 'Start typing or paste content...'
+    });
+
+    if (livePages[index]?.content) {
+      quill.root.innerHTML = livePages[index].content;
+    }
+
+    quill.clipboard.addMatcher(Node.ELEMENT_NODE, (node, delta) => {
+      setTimeout(() => {
+        const currentContent = quill.root.innerHTML;
+        const currentHeight = quill.root.scrollHeight;
+
+        if (currentHeight > CONTENT_HEIGHT) {
+          const splitPages = splitContentIntoPages(currentContent);
+
+          if (splitPages.length > 1) {
+            quill.root.innerHTML = splitPages[0];
+            updatePageContent(index, splitPages[0]);
+
+            const newPages = [...livePages];
+            for (let i = 1; i < splitPages.length; i++) {
+              newPages.splice(index + i, 0, {
+                id: `page-${Date.now()}-${i}`,
+                content: splitPages[i],
+                existingPageId: null
+              });
+            }
+
+            setLivePages(newPages);
+
+            setTimeout(() => {
+              alert(`✅ Content split into ${splitPages.length} A4 pages!`);
+            }, 200);
+          }
+        }
+      }, 100);
+
+      return delta;
+    });
+
+    quill.on('text-change', () => {
+      const content = quill.root.innerHTML;
+      updatePageContent(index, content);
+
+      const editorHeight = quill.root.scrollHeight;
+      const fillPercentage = Math.round((editorHeight / CONTENT_HEIGHT) * 100);
       
-      // Check current page height again
-      container.innerHTML = currentPage.join('');
-      if (container.scrollHeight > maxHeight && currentPage.length > 0) {
-        pages.push(currentPage.join(''));
-        currentPage = [];
+      const pageHeader = document.querySelector(`#editor-${index}`)?.closest('.page-editor-container')?.querySelector('.page-header');
+      const pageStatus = pageHeader?.querySelector('.page-status');
+      
+      if (pageHeader && pageStatus) {
+        if (editorHeight > CONTENT_HEIGHT) {
+          pageHeader.style.background = '#fee2e2';
+          pageStatus.textContent = '⚠️ Exceeds A4 page!';
+          pageStatus.className = 'page-status ml-3 text-xs font-semibold text-red-600';
+        } else if (fillPercentage >= 95) {
+          pageHeader.style.background = '#fef3c7';
+          pageStatus.textContent = `${fillPercentage}% filled`;
+          pageStatus.className = 'page-status ml-3 text-xs font-semibold text-yellow-700';
+        } else {
+          pageHeader.style.background = '#f9fafb';
+          pageStatus.textContent = `${fillPercentage}% filled`;
+          pageStatus.className = 'page-status ml-3 text-xs font-semibold text-gray-600';
+        }
       }
+    });
+
+    quillRefs.current[index] = quill;
+  };
+
+  useEffect(() => {
+    if (quillLoaded) {
+      livePages.forEach((_, index) => {
+        setTimeout(() => initQuill(index), 100 * index);
+      });
     }
-  }
-  
-  // Add remaining content
-  if (currentPage.length > 0) {
-    pages.push(currentPage.join(''));
-  }
-  
-  document.body.removeChild(container);
-  return pages.length > 0 ? pages : [htmlContent];
-};
+  }, [quillLoaded, livePages.length]);
 
+  const updatePageContent = (index, content) => {
+    setLivePages(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], content };
+      return updated;
+    });
+  };
 
+  const addNewPage = () => {
+    const newPage = { id: `page-${Date.now()}`, content: '', existingPageId: null };
+    setLivePages(prev => [...prev, newPage]);
+    setEditingPageId(null);
+    setTimeout(() => {
+      initQuill(livePages.length);
+      setSelectedPageIndex(livePages.length);
+    }, 200);
+  };
 
-  // Preview pagination before saving
-  const previewPagination = () => {
-    let editorContent = formData.content;
-    if (editorInstance) {
-      editorContent = editorInstance.getData();
-    }
-
-    if (!editorContent || editorContent.trim() === '') {
-      alert('Please add some content first!');
+  const deletePage = (index) => {
+    if (livePages.length === 1) {
+      alert('Cannot delete the last page!');
       return;
     }
 
-    const pages = autoSplit 
-      ? splitContentByHeight(editorContent, 700)
-      : editorContent.split(/<div[^>]*page-break-after[^>]*>[\s\S]*?<\/div>/gi).filter(p => p.trim());
-
-    const totalWords = countWords(editorContent);
-
-    alert(
-      `📊 Pagination Preview:\n\n` +
-      `Total Words: ${totalWords}\n` +
-      `Total Pages: ${pages.length}\n` +
-      `Average words/page: ${Math.round(totalWords / pages.length)}\n\n` +
-      `${autoSplit ? '✅ Pages will fit perfectly in book (670×700px)!' : '📄 Using manual page breaks'}`
-    );
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-
-    let editorContent = formData.content;
-    if (editorInstance) {
-      editorContent = editorInstance.getData();
+    if (quillRefs.current[index]) {
+      delete quillRefs.current[index];
     }
 
-    if (editMode) {
-      const res = await fetch('/api/author/pages', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: editorContent, id: editId })
-      });
+    const newPages = livePages.filter((_, i) => i !== index);
+    setLivePages(newPages);
 
-      const data = await res.json();
-      if (data.success) {
-        setFormData({ content: '' });
-        setEditMode(false);
-        setEditId(null);
-        fetchPages();
-        alert('Page updated!');
+    if (selectedPageIndex >= newPages.length) {
+      setSelectedPageIndex(newPages.length - 1);
+    }
+  };
 
-        if (editorInstance) {
-          editorInstance.setData('');
-        }
-      } else {
-        alert('Error: ' + data.error);
-      }
-    } else {
-      let contentPages = [];
+  const saveAllPages = async () => {
+    setLoading(true);
 
-      if (autoSplit) {
-        // Auto-split by HEIGHT to fit book page
-        const maxPageHeight = 700; // 800px total - 100px for margins/header/footer
-        contentPages = splitContentByHeight(editorContent, maxPageHeight);
-        console.log(`Auto-split into ${contentPages.length} page(s) based on page height (670×800px)`);
-      } else {
-        // Manual split by page breaks
-        const pageBreakMarker = /<div[^>]*page-break-after[^>]*>[\s\S]*?<\/div>/gi;
-        const contentWithDelimiters = editorContent.replace(pageBreakMarker, '|||PAGE_BREAK|||');
-        contentPages = contentWithDelimiters.split('|||PAGE_BREAK|||').filter(page => page.trim() !== '');
-        console.log(`Manual split into ${contentPages.length} page(s)`);
-      }
+    const pagesToSave = livePages
+      .map(page => ({
+        content: page.content,
+        existingPageId: page.existingPageId
+      }))
+      .filter(page => page.content && page.content.trim() !== '' && page.content !== '<p><br></p>');
 
-      let savedCount = 0;
-      let failedCount = 0;
+    if (pagesToSave.length === 0) {
+      alert('No content to save!');
+      setLoading(false);
+      return;
+    }
 
-      for (let i = 0; i < contentPages.length; i++) {
-        const pageData = {
-          chapter_id: chapterId,
-          content: contentPages[i].trim()
-        };
+    let savedCount = 0;
+    let updatedCount = 0;
+    let failedCount = 0;
 
-        try {
+    for (let page of pagesToSave) {
+      try {
+        if (page.existingPageId) {
+          const res = await fetch('/api/author/pages', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: page.existingPageId,
+              content: page.content.trim()
+            })
+          });
+
+          const data = await res.json();
+          if (data.success) {
+            updatedCount++;
+          } else {
+            failedCount++;
+          }
+        } else {
+          const pageData = {
+            chapter_id: chapterId,
+            content: page.content.trim()
+          };
+
           const res = await fetch('/api/author/pages', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -279,89 +390,287 @@ const splitContentByHeight = (htmlContent, maxHeight = 680) => {
             savedCount++;
           } else {
             failedCount++;
-            console.error(`Failed to save page ${i + 1}:`, data.error);
           }
-        } catch (error) {
-          failedCount++;
-          console.error(`Error saving page ${i + 1}:`, error);
         }
+      } catch (error) {
+        failedCount++;
       }
+    }
 
-      if (savedCount > 0) {
-        setFormData({ content: '' });
-        fetchPages();
-
-        const message = contentPages.length > 1 
-          ? `Successfully created ${savedCount} page(s)!${failedCount > 0 ? ` (${failedCount} failed)` : ''}` 
-          : 'Page created!';
-
-        alert(message);
-
-        if (editorInstance) {
-          editorInstance.setData('');
+    if (savedCount > 0 || updatedCount > 0) {
+      let message = '✅ Success!\n';
+      if (savedCount > 0) message += `📄 Created ${savedCount} new page(s)\n`;
+      if (updatedCount > 0) message += `✏️ Updated ${updatedCount} page(s)\n`;
+      if (failedCount > 0) message += `❌ Failed ${failedCount} page(s)`;
+      
+      alert(message);
+      
+      Object.values(quillRefs.current).forEach((quill, index) => {
+        if (quill) {
+          const container = document.getElementById(`editor-${index}`);
+          if (container) container.innerHTML = '';
         }
-      } else {
-        alert('Error: No pages were created');
-      }
+      });
+      
+      quillRefs.current = {};
+      setLivePages([{ id: `page-${Date.now()}`, content: '', existingPageId: null }]);
+      setSelectedPageIndex(0);
+      setEditingPageId(null);
+      fetchPages();
+      
+      setTimeout(() => initQuill(0), 300);
+    } else {
+      alert('❌ Failed to save pages');
     }
 
     setLoading(false);
   };
 
-  const handleEdit = (page) => {
-    setFormData({ content: page.content || '' });
-    setEditMode(true);
-    setEditId(page.id);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+  const countWords = (html) => {
+    if (typeof window === 'undefined') return 0;
+    const temp = document.createElement('div');
+    temp.innerHTML = html;
+    const text = temp.textContent || temp.innerText || '';
+    return text.trim().split(/\s+/).filter(w => w.length > 0).length;
   };
 
-  const handleCancelEdit = () => {
-    setEditMode(false);
-    setEditId(null);
-    setFormData({ content: '' });
-
-    if (editorInstance) {
-      editorInstance.setData('');
+  const updatePageStatus = (quill, container) => {
+    if (!quill || !container) return;
+    
+    const editorHeight = quill.root.scrollHeight;
+    const fillPercentage = Math.round((editorHeight / CONTENT_HEIGHT) * 100);
+    
+    const pageHeader = container.closest('.page-editor-container')?.querySelector('.page-header');
+    const pageStatus = pageHeader?.querySelector('.page-status');
+    
+    if (pageHeader && pageStatus) {
+      if (editorHeight > CONTENT_HEIGHT) {
+        pageHeader.style.background = '#fee2e2';
+        pageStatus.textContent = '⚠️ Exceeds A4 page!';
+        pageStatus.className = 'page-status ml-3 text-xs font-semibold text-red-600';
+      } else if (fillPercentage >= 95) {
+        pageHeader.style.background = '#fef3c7';
+        pageStatus.textContent = `${fillPercentage}% filled`;
+        pageStatus.className = 'page-status ml-3 text-xs font-semibold text-yellow-700';
+      } else {
+        pageHeader.style.background = '#f9fafb';
+        pageStatus.textContent = `${fillPercentage}% filled`;
+        pageStatus.className = 'page-status ml-3 text-xs font-semibold text-gray-600';
+      }
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this page?')) return;
+  const handleEditExistingPage = (page) => {
+    if (!page || !page.content) {
+      alert('Invalid page data');
+      return;
+    }
+
+    Object.keys(quillRefs.current).forEach(key => {
+      const quill = quillRefs.current[key];
+      if (quill && quill.container) {
+        const parent = quill.container.parentNode;
+        if (parent) {
+          parent.innerHTML = '';
+        }
+      }
+    });
+    quillRefs.current = {};
+
+    setEditingPageId(page.id);
+    setSelectedPageIndex(0);
+    
+    const newPage = {
+      id: `edit-${Date.now()}`,
+      content: page.content,
+      existingPageId: page.id
+    };
+    
+    setLivePages([newPage]);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    setTimeout(() => {
+      const container = document.getElementById('editor-0');
+      
+      if (!container || !window.Quill) return;
+
+      container.innerHTML = '';
+      
+      const quill = new window.Quill('#editor-0', {
+        theme: 'snow',
+        modules: {
+          toolbar: [
+            [{ 'header': [1, 2, 3, false] }],
+            ['bold', 'italic', 'underline', 'strike'],
+            [{ 'color': [] }, { 'background': [] }],
+            [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+            [{ 'align': [] }],
+            ['link', 'image'],
+            ['clean']
+          ]
+        },
+        placeholder: 'Edit your content...'
+      });
+
+      quill.root.innerHTML = page.content;
+
+      quill.on('text-change', () => {
+        const content = quill.root.innerHTML;
+        setLivePages(prev => {
+          const updated = [...prev];
+          updated[0] = { ...updated[0], content };
+          return updated;
+        });
+
+        updatePageStatus(quill, container);
+      });
+
+      quillRefs.current[0] = quill;
+      
+      setTimeout(() => {
+        updatePageStatus(quill, container);
+      }, 100);
+    }, 600);
+  };
+
+  const cancelEdit = () => {
+    if (confirm('Cancel editing? Unsaved changes will be lost.')) {
+      Object.values(quillRefs.current).forEach((quill, index) => {
+        if (quill) {
+          const container = document.getElementById(`editor-${index}`);
+          if (container) container.innerHTML = '';
+        }
+      });
+      
+      quillRefs.current = {};
+      setLivePages([{ id: `page-${Date.now()}`, content: '', existingPageId: null }]);
+      setSelectedPageIndex(0);
+      setEditingPageId(null);
+      
+      setTimeout(() => initQuill(0), 300);
+    }
+  };
+
+  const handleDeleteExistingPage = async (id) => {
+    if (!confirm('Delete this page permanently?')) return;
 
     const res = await fetch(`/api/author/pages?id=${id}`, { method: 'DELETE' });
     const data = await res.json();
     if (data.success) {
       fetchPages();
-      alert('Page deleted!');
+      alert('✅ Page deleted successfully!');
+    } else {
+      alert('❌ Failed to delete page');
     }
   };
 
   return (
     <>
       <style jsx global>{`
-        .cke_pagebreak {
-          background: linear-gradient(to right, #4299e1 50%, transparent 50%) !important;
-          background-size: 10px 2px !important;
-          background-repeat: repeat-x !important;
-          border: 1px dashed #4299e1 !important;
-          padding: 10px 0 !important;
-          margin: 20px 0 !important;
-          position: relative !important;
-          display: block !important;
+        /* A4 Paper styles */
+        .page-editor-container {
+          width: ${PAGE_WIDTH}px;
+          height: ${PAGE_HEIGHT}px;
+          background: white;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+          margin: 20px auto;
+          border-radius: 0;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
         }
 
-        .cke_pagebreak::after {
-          content: '📄 Page Break - New Page Starts Here' !important;
-          display: block !important;
-          text-align: center !important;
-          color: #4299e1 !important;
-          font-size: 12px !important;
-          font-weight: bold !important;
-          margin-top: 5px !important;
+        .page-header {
+          height: ${HEADER_HEIGHT}px;
+          padding: 12px ${CONTENT_PADDING}px;
+          background: #f9fafb;
+          border-bottom: 2px solid #e5e7eb;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          transition: background 0.3s;
+          flex-shrink: 0;
+        }
+
+        .ql-toolbar {
+          flex-shrink: 0;
+          border-bottom: 1px solid #e5e7eb !important;
+          border-left: none !important;
+          border-right: none !important;
+          border-top: none !important;
+        }
+
+        .ql-container {
+          font-size: 16px !important;
+          line-height: 1.6 !important;
+          font-family: 'Georgia', 'Times New Roman', serif !important;
+          height: ${CONTENT_HEIGHT}px !important;
+          flex: none !important;
+          border: none !important;
+          overflow: hidden !important;
+        }
+
+        .ql-editor {
+          padding: ${CONTENT_PADDING}px !important;
+          overflow-y: auto !important;
+          height: 100% !important;
+          box-sizing: border-box !important;
+        }
+
+        .page-footer {
+          height: ${FOOTER_HEIGHT}px;
+          padding: 12px 0;
+          background: #f9fafb;
+          border-top: 1px solid #e5e7eb;
+          text-align: center;
+          font-size: 12px;
+          color: #6b7280;
+          flex-shrink: 0;
+        }
+
+        .ql-editor p {
+          margin-bottom: 0.8em;
+          margin-top: 0;
+        }
+
+        .ql-editor h1,
+        .ql-editor h2,
+        .ql-editor h3 {
+          margin-bottom: 0.6em;
+          margin-top: 0.6em;
+        }
+
+        .ql-editor ul, .ql-editor ol {
+          margin-bottom: 0.8em;
+        }
+
+        .editing-indicator {
+          background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+          color: white;
+          padding: 8px 16px;
+          border-radius: 8px;
+          font-weight: bold;
+          animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.8; }
+        }
+
+        /* Print styles for exact A4 */
+        @media print {
+          .page-editor-container {
+            width: 210mm;
+            height: 297mm;
+            page-break-after: always;
+            box-shadow: none;
+            margin: 0;
+          }
         }
       `}</style>
 
-      <div className="p-8 max-w-7xl mx-auto">
+      <div className="p-8 max-w-8xl mx-auto bg-gray-100 min-h-screen">
         <div className="mb-8">
           <Link 
             href={bookId ? `/author/chapters/${bookId}` : '/author/books'}
@@ -369,173 +678,147 @@ const splitContentByHeight = (htmlContent, maxHeight = 680) => {
           >
             ← Back to Chapters
           </Link>
-          <h1 className="text-3xl font-bold text-gray-800">Pages & Content</h1>
+          <h1 className="text-3xl font-bold text-gray-800">A4 Page Editor</h1>
           <p className="text-gray-600 mt-2">Chapter: <span className="font-semibold">{chapterTitle}</span></p>
+          <p className="text-sm text-gray-500 mt-1">📄 A4 Size: 210mm × 297mm (794px × 1123px)</p>
+          {editingPageId && (
+            <div className="mt-3 inline-block editing-indicator">
+              ✏️ Editing Mode - Page ID: {editingPageId}
+            </div>
+          )}
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow-md mb-8">
-          <h2 className="text-xl font-semibold mb-4">
-            {editMode ? 'Edit Page' : 'Add New Page'}
-          </h2>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Auto-split toggle */}
-            {!editMode && (
-              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                <div className="flex items-center gap-3 mb-3">
-                  <input
-                    type="checkbox"
-                    id="autoSplit"
-                    checked={autoSplit}
-                    onChange={(e) => setAutoSplit(e.target.checked)}
-                    className="w-5 h-5 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
-                  />
-                  <label htmlFor="autoSplit" className="text-sm font-semibold text-purple-900 cursor-pointer">
-                    🤖 Enable Automatic Page Split (Fit to Book Page Size)
-                  </label>
-                </div>
-
-                {autoSplit && (
-                  <div className="ml-8 bg-white p-3 rounded border border-purple-200">
-                    <p className="text-sm text-purple-800">
-                      ✨ <strong>Smart Pagination Enabled</strong>
-                    </p>
-                    <p className="text-xs text-purple-600 mt-1">
-                      Content will automatically split to fit book pages (670×800px)
-                      <br />
-                      No text will be cut off - overflow goes to next page automatically!
-                    </p>
-                  </div>
+        <div className="bg-gradient-to-br from-blue-50 to-purple-50 p-6 rounded-lg shadow-lg mb-8">
+          <div className="flex items-start gap-4 mb-4">
+            <div className="text-4xl">📝</div>
+            <div className="flex-1">
+              <h2 className="text-2xl font-bold text-gray-800 mb-2">
+                {editingPageId ? '✏️ Edit Mode' : '📝 Create Mode'}
+              </h2>
+              <p className="text-gray-600 mb-4">
+                {editingPageId 
+                  ? '✨ Editing existing page - Perfect A4 format' 
+                  : '✨ Create pages with A4 auto-split - No gaps at bottom'}
+              </p>
+              
+              <div className="flex gap-3 flex-wrap">
+                <button 
+                  onClick={addNewPage}
+                  disabled={!quillLoaded}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium disabled:bg-gray-400"
+                >
+                  ➕ Add New Page
+                </button>
+                <button 
+                  onClick={saveAllPages}
+                  disabled={loading || !quillLoaded}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:bg-gray-400 font-medium"
+                >
+                  {loading ? '⏳ Saving...' : editingPageId ? '💾 Update Page' : '💾 Save All Pages'}
+                </button>
+                {editingPageId && (
+                  <button 
+                    onClick={cancelEdit}
+                    className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition font-medium"
+                  >
+                    ❌ Cancel Edit
+                  </button>
                 )}
-              </div>
-            )}
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Content
-              </label>
-
-              <CKEditorComponent 
-                value={formData.content}
-                onChange={handleEditorChange}
-                onReady={handleEditorReady}
-              />
-
-              <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <p className="text-sm text-blue-800 font-semibold mb-1">
-                  💡 Two ways to create multiple pages:
-                </p>
-                <div className="text-sm text-blue-700 space-y-2">
-                  <div>
-                    <strong>Option 1: Automatic (Recommended) ⭐</strong>
-                    <ul className="list-disc list-inside ml-2 mt-1">
-                      <li>Enable "Automatic Page Split" checkbox above</li>
-                      <li>Write all content continuously</li>
-                      <li>Content auto-splits to fit 670×800px book pages perfectly!</li>
-                      <li>No text will be cut - overflow moves to next page</li>
-                    </ul>
-                  </div>
-                  <div>
-                    <strong>Option 2: Manual</strong>
-                    <ul className="list-disc list-inside ml-2 mt-1">
-                      <li>Write content → Click "Insert" → "Page Break"</li>
-                      <li>Write more content → Add more page breaks as needed</li>
-                    </ul>
-                  </div>
+                <div className="px-4 py-2 bg-white rounded-lg border border-gray-300 font-semibold text-gray-700">
+                  📄 {livePages.length} Page(s) • {livePages.reduce((sum, p) => sum + countWords(p.content), 0)} Words
                 </div>
               </div>
             </div>
-
-            <div className="flex gap-3">
-              {!editMode && (
-                <button 
-                  type="button"
-                  onClick={previewPagination}
-                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium"
-                >
-                  📊 Preview Pagination
-                </button>
-              )}
-              <button 
-                type="submit" 
-                disabled={loading}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:bg-gray-400 font-medium"
-              >
-                {loading ? 'Saving...' : (editMode ? 'Update Page' : 'Add Pages')}
-              </button>
-              {editMode && (
-                <button 
-                  type="button"
-                  onClick={handleCancelEdit}
-                  className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition font-medium"
-                >
-                  Cancel
-                </button>
-              )}
-            </div>
-          </form>
+          </div>
         </div>
 
-        <div className="space-y-6">
-          <div className="flex justify-between items-center">
-            <h3 className="text-lg font-semibold text-gray-800">All Pages ({pages.length})</h3>
+        {!quillLoaded ? (
+          <div className="flex items-center justify-center p-12">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-gray-600">Loading editor...</p>
+            </div>
           </div>
+        ) : (
+          <div className="space-y-6">
+            {livePages.map((page, index) => (
+              <div key={page.id} className="page-editor-container">
+                <div className="page-header">
+                  <div>
+                    <span className="text-xs text-gray-500 uppercase tracking-wide">
+                      {editingPageId ? `✏️ Editing Page (ID: ${editingPageId})` : `A4 Page ${index + 1}`}
+                    </span>
+                    <span className="page-status ml-3 text-xs font-semibold text-gray-600">0% filled</span>
+                  </div>
+                  {livePages.length > 1 && (
+                    <button
+                      onClick={() => deletePage(index)}
+                      className="px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600 transition"
+                    >
+                      🗑️
+                    </button>
+                  )}
+                </div>
+                
+                <div id={`editor-${index}`} className="quill-editor"></div>
+                
+                <div className="page-footer">
+                  {editingPageId ? 'Editing Mode' : `Page ${index + 1}`}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
+        <div className="mt-16">
+          <h2 className="text-2xl font-bold text-gray-800 mb-6">📚 Saved A4 Pages ({pages.length})</h2>
+          
           {pages.length === 0 ? (
             <div className="bg-white p-8 rounded-lg shadow text-center text-gray-500">
-              <p className="text-lg">No pages yet</p>
-              <p className="text-sm mt-2">Add your first page to this chapter</p>
+              <p className="text-lg">No saved pages yet</p>
             </div>
           ) : (
             <div className="grid gap-6">
               {pages.map((page, index) => (
-                <div key={page.id} className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition">
+                <div 
+                  key={page.id} 
+                  className={`bg-white p-6 rounded-lg shadow-md transition-all ${
+                    editingPageId === page.id ? 'ring-4 ring-yellow-400' : ''
+                  }`}
+                >
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <span className="px-3 py-1 bg-blue-100 text-blue-800 text-sm font-semibold rounded-full">
-                          Page {index + 1}
+                      <span className="px-3 py-1 bg-blue-100 text-blue-800 text-sm font-semibold rounded-full">
+                        A4 Page {index + 1}
+                      </span>
+                      <span className="text-xs text-gray-500 ml-2">
+                        ({countWords(page.content || '')} words)
+                      </span>
+                      {editingPageId === page.id && (
+                        <span className="ml-2 px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-semibold rounded">
+                          Currently Editing
                         </span>
-                        <span className="text-xs text-gray-500">
-                          ({countWords(page.content || '')} words)
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-500">
-                        Created: {new Date(page.created_at).toLocaleDateString('en-US', { 
-                          year: 'numeric', 
-                          month: 'short', 
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </p>
+                      )}
                     </div>
                     <div className="flex gap-2">
                       <button 
-                        onClick={() => handleEdit(page)}
-                        className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition text-sm font-medium"
+                        onClick={() => handleEditExistingPage(page)}
+                        disabled={editingPageId === page.id}
+                        className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 text-sm disabled:bg-gray-400 disabled:cursor-not-allowed"
                       >
-                        Edit
+                        {editingPageId === page.id ? '✏️ Editing...' : '✏️ Edit'}
                       </button>
                       <button 
-                        onClick={() => handleDelete(page.id)}
-                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-sm font-medium"
+                        onClick={() => handleDeleteExistingPage(page.id)}
+                        disabled={editingPageId === page.id}
+                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm disabled:bg-gray-400 disabled:cursor-not-allowed"
                       >
-                        Delete
+                        🗑️ Delete
                       </button>
                     </div>
                   </div>
-                  <div className="prose max-w-none">
-                    <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 max-h-96 overflow-y-auto">
-                      {page.content ? (
-                        <div 
-                          className="text-gray-700 leading-relaxed"
-                          dangerouslySetInnerHTML={{ __html: page.content }}
-                        />
-                      ) : (
-                        <span className="text-gray-400 italic">No content</span>
-                      )}
-                    </div>
+                  <div className="bg-gray-50 p-4 rounded-lg border max-h-96 overflow-y-auto">
+                    <div dangerouslySetInnerHTML={{ __html: page.content }} />
                   </div>
                 </div>
               ))}

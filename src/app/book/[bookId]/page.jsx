@@ -12,11 +12,12 @@ export default function BookReaderPage() {
   const [chapters, setChapters] = useState([]);
   const [allPages, setAllPages] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [currentSpreadIndex, setCurrentSpreadIndex] = useState(0);
+  const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [isFlipping, setIsFlipping] = useState(false);
   const [flipDirection, setFlipDirection] = useState(null);
   const [bookOpened, setBookOpened] = useState(false);
-  
+  const [isMobile, setIsMobile] = useState(false);
+  const [wasPlayingBeforeFlip, setWasPlayingBeforeFlip] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStartX, setDragStartX] = useState(0);
   const [dragCurrentX, setDragCurrentX] = useState(0);
@@ -28,6 +29,21 @@ export default function BookReaderPage() {
   const [isPaused, setIsPaused] = useState(false);
   const speechRef = useRef(null);
   const utteranceRef = useRef(null);
+
+  // A4 EXACT dimensions at 96 DPI
+  const A4_WIDTH = 820;
+  const A4_HEIGHT = 1300;
+
+  // Check if mobile/tablet
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 1024);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
     if (bookId) {
@@ -48,9 +64,8 @@ export default function BookReaderPage() {
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [currentSpreadIndex, allPages.length, bookOpened]);
+  }, [currentPageIndex, allPages.length, bookOpened, isMobile]);
 
-  // Cleanup speech on unmount or page change
   useEffect(() => {
     return () => {
       if (speechRef.current) {
@@ -59,12 +74,20 @@ export default function BookReaderPage() {
     };
   }, []);
 
-  // Stop speech when page changes
-  useEffect(() => {
-    if (isSpeaking) {
-      stopSpeaking();
-    }
-  }, [currentSpreadIndex]);
+  // Replace your existing useEffect for currentPageIndex
+useEffect(() => {
+  // If audio was playing before page flip, auto-resume on new page
+  if (wasPlayingBeforeFlip && !isFlipping) {
+    // Small delay to let page render completely
+    const timer = setTimeout(() => {
+      startSpeaking();
+      setWasPlayingBeforeFlip(false); // Reset flag
+    }, 700); // 700ms = 600ms flip animation + 100ms buffer
+    
+    return () => clearTimeout(timer);
+  }
+}, [currentPageIndex, isFlipping, wasPlayingBeforeFlip]);
+
 
   const fetchAllData = async () => {
     try {
@@ -125,92 +148,110 @@ export default function BookReaderPage() {
     }
   };
 
-  // Speech functions
-// Speech functions ko update karo - DONO pages ka text padhega
-const getPageText = () => {
-  const leftPageIndex = currentSpreadIndex * 2;
-  const rightPageIndex = leftPageIndex + 1;
-  const leftPage = allPages[leftPageIndex];
-  const rightPage = allPages[rightPageIndex];
-
-  let combinedText = '';
-
-  // Left page ka text extract karo
-  if (leftPage) {
-    if (leftPage.type === 'content' && leftPage.content?.content) {
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = leftPage.content.content;
-      const leftText = tempDiv.textContent || tempDiv.innerText || '';
-      if (leftText.trim()) {
-        combinedText += leftText + '\n\n';
+  const getPageText = () => {
+    let text = '';
+    
+    if (isMobile) {
+      // Mobile: single page
+      const page = allPages[currentPageIndex];
+      if (page) {
+        if (page.type === 'content' && page.content?.content) {
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = page.content.content;
+          text = tempDiv.textContent || tempDiv.innerText || '';
+        } else if (page.type === 'chapter-title') {
+          text = page.content.title;
+        }
       }
-    } else if (leftPage.type === 'chapter-title') {
-      combinedText += leftPage.content.title + '\n\n';
+    } else {
+      // Desktop: spread view (use currentPageIndex as spread index * 2)
+      const leftPageIndex = currentPageIndex;
+      const rightPageIndex = currentPageIndex + 1;
+      const leftPage = allPages[leftPageIndex];
+      const rightPage = allPages[rightPageIndex];
+
+      if (leftPage) {
+        if (leftPage.type === 'content' && leftPage.content?.content) {
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = leftPage.content.content;
+          const leftText = tempDiv.textContent || tempDiv.innerText || '';
+          if (leftText.trim()) {
+            text += leftText + '\n\n';
+          }
+        } else if (leftPage.type === 'chapter-title') {
+          text += leftPage.content.title + '\n\n';
+        }
+      }
+
+      if (rightPage) {
+        if (rightPage.type === 'content' && rightPage.content?.content) {
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = rightPage.content.content;
+          const rightText = tempDiv.textContent || tempDiv.innerText || '';
+          if (rightText.trim()) {
+            text += rightText;
+          }
+        } else if (rightPage.type === 'chapter-title') {
+          text += rightPage.content.title;
+        }
+      }
     }
+
+    return text.trim();
+  };
+
+ const startSpeaking = () => {
+  if (!window.speechSynthesis) {
+    alert('Speech synthesis not supported in your browser');
+    return;
   }
 
-  // Right page ka text extract karo
-  if (rightPage) {
-    if (rightPage.type === 'content' && rightPage.content?.content) {
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = rightPage.content.content;
-      const rightText = tempDiv.textContent || tempDiv.innerText || '';
-      if (rightText.trim()) {
-        combinedText += rightText;
-      }
-    } else if (rightPage.type === 'chapter-title') {
-      combinedText += rightPage.content.title;
-    }
+  const text = getPageText();
+  if (!text.trim()) {
+    alert('No text content available on this page');
+    setWasPlayingBeforeFlip(false); // Reset if no content
+    return;
   }
 
-  return combinedText.trim();
+  window.speechSynthesis.cancel();
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'en-US';
+  utterance.rate = 1.0;
+  utterance.pitch = 1.0;
+  utterance.volume = 1.0;
+
+  utterance.onend = () => {
+    setIsSpeaking(false);
+    setIsPaused(false);
+    
+    const maxIndex = isMobile ? allPages.length - 1 : allPages.length - 2;
+    if (currentPageIndex < maxIndex) {
+      // Mark that we want to continue playing on next page
+      setWasPlayingBeforeFlip(true);
+      
+      setTimeout(() => {
+        nextPage();
+      }, 500);
+    } else {
+      // Last page - stop completely
+      setWasPlayingBeforeFlip(false);
+    }
+  };
+
+  utterance.onerror = (event) => {
+    console.log('Speech error:', event);
+    setIsSpeaking(false);
+    setIsPaused(false);
+    setWasPlayingBeforeFlip(false); // Reset on error
+  };
+
+  utteranceRef.current = utterance;
+  window.speechSynthesis.speak(utterance);
+  setIsSpeaking(true);
+  setIsPaused(false);
 };
 
-
-  const startSpeaking = () => {
-    if (!window.speechSynthesis) {
-      alert('Speech synthesis not supported in your browser');
-      return;
-    }
-
-    const text = getPageText();
-    if (!text.trim()) {
-      alert('No text content available on this page');
-      return;
-    }
-
-    // Cancel any ongoing speech
-    window.speechSynthesis.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'en-US'; // Change to 'hi-IN' for Hindi
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
-
-    utterance.onend = () => {
-      setIsSpeaking(false);
-      setIsPaused(false);
-      
-      // Auto flip to next page when speech ends
-      if (currentSpreadIndex < Math.ceil(allPages.length / 2) - 1) {
-        setTimeout(() => {
-          nextPage();
-        }, 500);
-      }
-    };
-
-    utterance.onerror = (event) => {
-      console.log('Speech error:', event);
-      setIsSpeaking(false);
-      setIsPaused(false);
-    };
-
-    utteranceRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
-    setIsSpeaking(true);
-    setIsPaused(false);
-  };
 
   const pauseSpeaking = () => {
     if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
@@ -226,52 +267,79 @@ const getPageText = () => {
     }
   };
 
-  const stopSpeaking = () => {
-    window.speechSynthesis.cancel();
-    setIsSpeaking(false);
-    setIsPaused(false);
-  };
+ const stopSpeaking = (shouldResume = false) => {
+  window.speechSynthesis.cancel();
+  setIsSpeaking(false);
+  setIsPaused(false);
+  
+  // Track if we should auto-resume after page flip
+  if (shouldResume) {
+    setWasPlayingBeforeFlip(true);
+  } else {
+    setWasPlayingBeforeFlip(false);
+  }
+};
+
 
   const openBook = () => {
     setBookOpened(true);
   };
+const closeBook = () => {
+  stopSpeaking(false); // Don't auto-resume when closing book
+  setBookOpened(false);
+  setCurrentPageIndex(0);
+  setWasPlayingBeforeFlip(false); // Reset flag
+};
 
-  const closeBook = () => {
-    stopSpeaking();
-    setBookOpened(false);
-    setCurrentSpreadIndex(0);
-  };
 
   const goToPage = (pageIndex) => {
     if (pageIndex >= 0 && pageIndex < allPages.length) {
-      const spreadIndex = Math.floor(pageIndex / 2);
-      setCurrentSpreadIndex(spreadIndex);
+      setCurrentPageIndex(pageIndex);
     }
   };
 
-  const nextPage = () => {
-    if (currentSpreadIndex < Math.ceil(allPages.length / 2) - 1) {
-      setIsFlipping(true);
-      setFlipDirection('next');
-      setTimeout(() => {
-        setCurrentSpreadIndex(currentSpreadIndex + 1);
-        setIsFlipping(false);
-        setFlipDirection(null);
-      }, 600);
+const nextPage = () => {
+  const maxIndex = isMobile ? allPages.length - 1 : allPages.length - 2;
+  
+  if (currentPageIndex < maxIndex) {
+    // Check if audio is currently playing
+    const wasPlaying = isSpeaking && !isPaused;
+    
+    // Stop current audio but mark for resume
+    if (wasPlaying) {
+      stopSpeaking(true); // Pass true to indicate we want auto-resume
     }
-  };
+    
+    setIsFlipping(true);
+    setFlipDirection('next');
+    setTimeout(() => {
+      setCurrentPageIndex(prev => isMobile ? prev + 1 : prev + 2);
+      setIsFlipping(false);
+      setFlipDirection(null);
+    }, 600);
+  }
+};
 
-  const prevPage = () => {
-    if (currentSpreadIndex > 0) {
-      setIsFlipping(true);
-      setFlipDirection('prev');
-      setTimeout(() => {
-        setCurrentSpreadIndex(currentSpreadIndex - 1);
-        setIsFlipping(false);
-        setFlipDirection(null);
-      }, 600);
+const prevPage = () => {
+  if (currentPageIndex > 0) {
+    // Check if audio is currently playing
+    const wasPlaying = isSpeaking && !isPaused;
+    
+    // Stop current audio but mark for resume
+    if (wasPlaying) {
+      stopSpeaking(true); // Pass true to indicate we want auto-resume
     }
-  };
+    
+    setIsFlipping(true);
+    setFlipDirection('prev');
+    setTimeout(() => {
+      setCurrentPageIndex(prev => isMobile ? prev - 1 : Math.max(0, prev - 2));
+      setIsFlipping(false);
+      setFlipDirection(null);
+    }, 600);
+  }
+};
+
 
   const handleMouseDown = (e) => {
     if (!bookOpened) return;
@@ -335,6 +403,11 @@ const getPageText = () => {
   const handleTouchMove = (e) => {
     if (isDragging && canDrag) {
       setDragCurrentX(e.touches[0].clientX);
+      
+      const diff = e.touches[0].clientX - dragStartX;
+      if (Math.abs(diff) > 10) {
+        e.preventDefault();
+      }
     }
   };
 
@@ -353,34 +426,49 @@ const getPageText = () => {
     );
   }
 
-  const leftPageIndex = currentSpreadIndex * 2;
-  const rightPageIndex = leftPageIndex + 1;
+  const leftPageIndex = currentPageIndex;
+  const rightPageIndex = currentPageIndex + 1;
   const leftPage = allPages[leftPageIndex];
-  const rightPage = allPages[rightPageIndex];
+  const rightPage = !isMobile ? allPages[rightPageIndex] : null;
 
-  const nextLeftPage = allPages[(currentSpreadIndex + 1) * 2];
-  const nextRightPage = allPages[(currentSpreadIndex + 1) * 2 + 1];
-  const prevLeftPage = allPages[(currentSpreadIndex - 1) * 2];
-  const prevRightPage = allPages[(currentSpreadIndex - 1) * 2 + 1];
+  const nextLeftPage = isMobile ? allPages[currentPageIndex + 1] : allPages[currentPageIndex + 2];
+  const nextRightPage = !isMobile ? allPages[currentPageIndex + 3] : null;
+  const prevLeftPage = isMobile ? allPages[currentPageIndex - 1] : allPages[currentPageIndex - 2];
+  const prevRightPage = !isMobile ? allPages[currentPageIndex - 1] : null;
 
   const dragOffset = isDragging && canDrag ? dragCurrentX - dragStartX : 0;
 
   return (
     <>
       <style jsx global>{`
+        * {
+          box-sizing: border-box;
+        }
+
+        body {
+          margin: 0;
+          padding: 0;
+          overflow-x: hidden;
+        }
+
+        /* Book Container with Responsive Scaling */
+        .book-spread-container {
+  position: relative;
+  perspective: 2000px;
+  transform-style: preserve-3d;
+  transform: scale(0.7); /* scale property ke bajaye transform use karo */
+  transform-origin: center top; /* Gap ko remove karne ke liye */
+}
+
+
         .book-page {
           background: white;
           border-radius: 4px;
-          box-shadow: 
+          box-shadow:
             0 20px 60px rgba(0, 0, 0, 0.3),
             inset 0 0 0 1px rgba(0, 0, 0, 0.1);
           position: relative;
           overflow: hidden;
-        }
-
-        .book-spread-container {
-          position: relative;
-          perspective: 2000px;
         }
 
         .book-spread {
@@ -415,6 +503,7 @@ const getPageText = () => {
           transform-origin: left center;
         }
 
+        /* EXACT SAME FLIP ANIMATIONS AS YOUR ORIGINAL CODE */
         .flipping-next .page-right {
           animation: flipNextSimple 0.6s ease-in-out forwards;
         }
@@ -465,11 +554,24 @@ const getPageText = () => {
           }
         }
 
+        /* Mobile single page */
+        @media (max-width: 1023px) {
+          .book-spread {
+            display: block;
+          }
+          
+          .page-right {
+            display: none;
+          }
+        }
+
         .page-inner {
           width: 100%;
           height: 100%;
           backface-visibility: hidden;
           -webkit-backface-visibility: hidden;
+          display: flex;
+          flex-direction: column;
         }
 
         .select-text, .select-text * {
@@ -480,308 +582,468 @@ const getPageText = () => {
           cursor: text !important;
         }
 
-        .drag-area {
-          cursor: grab;
-          user-select: none;
-        }
-
-        .drag-area:active {
-          cursor: grabbing;
-        }
-
-        .book-closed {
+        ,.book-closed {
           cursor: pointer;
           transition: transform 0.3s ease;
+              transform: scale(0.7);
+    transform-origin: center top;
         }
 
-        .book-closed:hover {
-          transform: scale(1.05);
-        }
+        
 
-        .speech-controls {
-          position: fixed;
-          bottom: 30px;
-          right: 30px;
-          z-index: 50;
-          display: flex;
-          gap: 12px;
-          background: rgba(0, 0, 0, 0.7);
-          backdrop-filter: blur(10px);
-          padding: 12px;
-          border-radius: 50px;
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-        }
-
-        .speech-btn {
-          width: 50px;
-          height: 50px;
-          border-radius: 50%;
-          border: none;
-          cursor: pointer;
+        /* Navbar Controls Styling */
+        .navbar-controls {
           display: flex;
           align-items: center;
-          justify-content: center;
-          transition: all 0.3s ease;
+          gap: 12px;
+        }
+
+       .control-btn {
+  background: rgba(0, 0, 0, 0.05);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  color: #1f2937;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 14px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.control-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+.control-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.control-btn.active {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.3);
+  color: #4f46e5;
+}
+
+@keyframes pulse-border {
+  0%, 100% {
+    border-color: rgba(99, 102, 241, 0.3);
+  }
+  50% {
+    border-color: rgba(99, 102, 241, 0.6);
+  }
+}
+
+.control-btn.speaking {
+  animation: pulse-border 1.5s ease-in-out infinite;
+}
+
+        /* Responsive Viewport Scaling */
+      @media (max-width: 1700px) {
+  .book-spread-container,.book-closed {
+    transform: scale(0.85);
+    transform-origin: center top;
+  }
+}
+
+@media (max-width: 1400px) {
+  .book-spread-container,.book-closed {
+    transform: scale(0.7);
+    transform-origin: center top;
+  }
+}
+
+@media (max-width: 1024px) {
+  .book-spread-container,.book-closed {
+    transform: scale(0.9);
+    transform-origin: center top;
+  }
+}
+
+@media (max-width: 850px) {
+  .book-spread-container,.book-closed {
+    transform: scale(0.75);
+    transform-origin: center top;
+  }
+}
+
+@media (max-width: 768px) {
+  .book-spread-container,.book-closed {
+    transform: scale(0.65);
+    transform-origin: center top;
+  }
+}
+
+@media (max-width: 600px) {
+  .book-spread-container,.book-closed {
+    transform: scale(0.55);
+    transform-origin: center top;
+  }
+}
+
+@media (max-width: 480px) {
+  .book-spread-container,.book-closed {
+    transform: scale(0.48);
+    transform-origin: center top;
+  }
+}
+
+@media (max-width: 400px) {
+  .book-spread-container,.book-closed {
+    transform: scale(0.42);
+    transform-origin: center top;
+  }
+}
+
+          
+          .navbar-controls {
+            gap: 6px;
+          }
+          
+          .control-btn {
+            padding: 6px 10px;
+            font-size: 12px;
+            gap: 4px;
+          }
+          
+          .control-btn svg {
+            width: 14px;
+            height: 14px;
+          }
+        }
+
+        @media (max-width: 600px) {
+          .book-spread-container {
+            transform: scale(0.55);
+          }
+        }
+
+        @media (max-width: 480px) {
+          .book-spread-container {
+            transform: scale(0.48);
+          }
+          
+          .control-btn span {
+            display: none;
+          }
+          
+          .control-btn {
+            padding: 6px;
+          }
+        }
+
+        @media (max-width: 400px) {
+          .book-spread-container {
+            transform: scale(0.42);
+          }
+        }
+
+        /* Navbar Responsive */
+        .navbar-container {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .navbar-left {
+          flex-shrink: 0;
+        }
+
+        .navbar-center {
+          flex: 1;
+          min-width: 0;
+          text-align: center;
+        }
+
+        .navbar-right {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex-shrink: 0;
+          flex-wrap: wrap;
+        }
+
+        .navbar-title {
           font-size: 20px;
+          font-weight: bold;
         }
 
-        .speech-btn:hover {
-          transform: scale(1.1);
-        }
-
-        .speech-btn:disabled {
-          opacity: 0.4;
-          cursor: not-allowed;
-        }
-
-        .speak-btn {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: white;
-        }
-
-        .pause-btn {
-          background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-          color: white;
-        }
-
-        .stop-btn {
-          background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-          color: white;
-        }
-
-        @keyframes pulse {
-          0%, 100% {
-            transform: scale(1);
+        @media (max-width: 768px) {
+          .navbar-container {
+            gap: 4px;
           }
-          50% {
-            transform: scale(1.05);
+
+          .navbar-title {
+            font-size: 14px !important;
+          }
+
+          .navbar-page-info {
+            font-size: 10px !important;
+          }
+          
+          .navbar-right .divider {
+            display: none !important;
           }
         }
 
-        .speaking-animation {
-          animation: pulse 1.5s ease-in-out infinite;
+        @media (max-width: 480px) {
+          .navbar-title {
+            font-size: 12px !important;
+          }
         }
+
+        /* A4 Print Support */
+        @media print {
+          @page {
+            size: A4;
+            margin: 0;
+          }
+        }
+          
       `}</style>
 
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 py-8">
-        <div className="max-w-7xl mx-auto px-4 mb-8">
-          <div className="flex justify-between items-center">
-            <Link 
-              href="/"
-              className="text-white hover:text-purple-300 font-semibold flex items-center gap-2 text-lg transition-colors"
+      <div className="min-h-screen bg-[#F4F1EA]">
+        {/* Top Navbar - Fully Responsive */}
+        <div className="sticky top-0 z-50 bg-white border-b border-gray-200 shadow-sm">
+  <div className="max-w-full mx-auto px-2 sm:px-4 py-2">
+    <div className="navbar-container">
+      {/* Left: Back Button */}
+      <div className="navbar-left">
+        <Link href="/" className="control-btn">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+          </svg>
+          <span>Back</span>
+        </Link>
+      </div>
+
+      {/* Center: Book Title & Page Info */}
+      <div className="navbar-center">
+        <h1 className="navbar-title text-gray-900 truncate px-2">
+          {book?.title}
+        </h1>
+        {bookOpened && (
+          <p className="navbar-page-info text-xs text-gray-600 mt-0.5">
+            {isMobile 
+              ? `Page ${leftPageIndex + 1}/${allPages.length}`
+              : `Page ${leftPageIndex + 1}-${rightPageIndex + 1}/${allPages.length}`
+            }
+          </p>
+        )}
+      </div>
+
+      {/* Right: Controls */}
+      <div className="navbar-right">
+        {bookOpened && (
+          <>
+            {/* Navigation */}
+            <button
+              onClick={prevPage}
+              disabled={currentPageIndex === 0 || isFlipping}
+              className="control-btn"
+              title="Previous Page (←)"
             >
-              ← Back to Library
-            </Link>
-            <div className="text-white text-center">
-              <h1 className="text-3xl font-bold drop-shadow-lg">{book?.title}</h1>
-              {bookOpened && (
-                <p className="text-sm text-purple-200 mt-2">
-                  Page {leftPageIndex + 1}-{rightPageIndex + 1} of {allPages.length}
-                </p>
-              )}
-            </div>
-            <div className="w-40 flex justify-end">
-              {bookOpened && (
-                <button
-                  onClick={closeBook}
-                  className="text-white hover:text-purple-300 font-semibold text-sm transition-colors"
-                >
-                  Close Book ✕
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              <span>Prev</span>
+            </button>
+
+            <button
+              onClick={nextPage}
+              disabled={currentPageIndex >= (isMobile ? allPages.length - 1 : allPages.length - 2) || isFlipping}
+              className="control-btn"
+              title="Next Page (→)"
+            >
+              <span>Next</span>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+
+            {/* Divider - Hidden on mobile */}
+            <div className="h-8 w-px bg-gray-300 divider"></div>
+
+            {/* Audio Controls */}
+            {!isSpeaking ? (
+              <button onClick={startSpeaking} className="control-btn" title="Read Aloud">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                </svg>
+                <span>Play</span>
+              </button>
+            ) : (
+              <>
+                {!isPaused ? (
+                  <button onClick={pauseSpeaking} className="control-btn active speaking" title="Pause">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>Pause</span>
+                  </button>
+                ) : (
+                  <button onClick={resumeSpeaking} className="control-btn active" title="Resume">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    </svg>
+                    <span>Resume</span>
+                  </button>
+                )}
+                <button onClick={() => stopSpeaking(false)} className="control-btn" title="Stop">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                  </svg>
+                  <span>Stop</span>
                 </button>
-              )}
-            </div>
-          </div>
+              </>
+            )}
+
+            <div className="h-8 w-px bg-gray-300 divider"></div>
+
+            <button onClick={closeBook} className="control-btn" title="Close Book">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              <span>Close</span>
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  </div>
         </div>
 
-        <div className="flex justify-center items-center px-4 relative">
+
+        {/* Book Content Area */}
+        <div className="flex justify-center items-center px-4 py-8">
           {!bookOpened ? (
-            <div 
-              className="book-closed"
-              onClick={openBook}
-            >
-              <div className="book-page" style={{ width: '670px', height: '800px' }}>
+            <div className="book-closed" onClick={openBook}>
+              <div className="book-page" style={{ width: `${A4_WIDTH}px`, height: `${A4_HEIGHT}px` }}>
                 <CoverPage book={book} />
               </div>
               <p className="text-white text-center mt-6 text-lg animate-pulse">
-                📖 Click to open book
+                Click to open book • A4 Size (210×297mm)
               </p>
             </div>
           ) : (
-            <>
-              <button
-                onClick={prevPage}
-                disabled={currentSpreadIndex === 0 || isFlipping}
-                className="absolute left-4 z-10 bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed text-white p-4 rounded-full backdrop-blur-sm transition-all"
-                style={{ top: '50%', transform: 'translateY(-50%)' }}
-              >
-                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-              </button>
-
-              <div 
-                ref={bookContainerRef}
-                className="book-spread-container"
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
-              >
-                <div className="book-spread-background">
-                  {isFlipping && flipDirection === 'next' && nextLeftPage && (
-                    <>
-                      <div className="book-page" style={{ width: '670px', height: '800px' }}>
-                        <PageContent 
-                          page={nextLeftPage} 
-                          pageNumber={(currentSpreadIndex + 1) * 2 + 1} 
-                          onChapterClick={goToPage}
-                          book={book}
-                        />
-                      </div>
-                      {nextRightPage && (
-                        <div className="book-page" style={{ width: '670px', height: '800px' }}>
-                          <PageContent 
-                            page={nextRightPage} 
-                            pageNumber={(currentSpreadIndex + 1) * 2 + 2} 
-                            onChapterClick={goToPage}
-                            book={book}
-                          />
-                        </div>
-                      )}
-                    </>
-                  )}
-
-                  {isFlipping && flipDirection === 'prev' && prevLeftPage && (
-                    <>
-                      <div className="book-page" style={{ width: '670px', height: '800px' }}>
-                        <PageContent 
-                          page={prevLeftPage} 
-                          pageNumber={(currentSpreadIndex - 1) * 2 + 1} 
-                          onChapterClick={goToPage}
-                          book={book}
-                        />
-                      </div>
-                      {prevRightPage && (
-                        <div className="book-page" style={{ width: '670px', height: '800px' }}>
-                          <PageContent 
-                            page={prevRightPage} 
-                            pageNumber={(currentSpreadIndex - 1) * 2 + 2} 
-                            onChapterClick={goToPage}
-                            book={book}
-                          />
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-
-                <div className={`book-spread ${isFlipping ? `flipping-${flipDirection}` : ''}`}>
-                  {leftPage && (
-                    <div 
-                      className="book-page page-left page-flip-animation"
-                      style={{
-                        width: '670px',
-                        height: '800px',
-                        transform: isDragging && canDrag && dragOffset > 0 
-                          ? `rotateY(${Math.min(dragOffset / 5, 30)}deg)` 
-                          : 'rotateY(0deg)'
-                      }}
-                    >
-                      <PageContent 
-                        page={leftPage} 
-                        pageNumber={leftPageIndex + 1} 
-                        onChapterClick={goToPage}
-                        book={book}
-                      />
-                    </div>
-                  )}
-
-                  {rightPage && (
-                    <div 
-                      className="book-page page-right page-flip-animation"
-                      style={{
-                        width: '670px',
-                        height: '800px',
-                        transform: isDragging && canDrag && dragOffset < 0 
-                          ? `rotateY(${Math.max(dragOffset / 5, -30)}deg)` 
-                          : 'rotateY(0deg)'
-                      }}
-                    >
-                      <PageContent 
-                        page={rightPage} 
-                        pageNumber={rightPageIndex + 1} 
-                        onChapterClick={goToPage}
-                        book={book}
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <button
-                onClick={nextPage}
-                disabled={currentSpreadIndex >= Math.ceil(allPages.length / 2) - 1 || isFlipping}
-                className="absolute right-4 z-10 bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed text-white p-4 rounded-full backdrop-blur-sm transition-all"
-                style={{ top: '50%', transform: 'translateY(-50%)' }}
-              >
-                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
-
-              {/* Speech Controls */}
-              <div className="speech-controls">
-                {!isSpeaking ? (
-                  <button
-                    onClick={startSpeaking}
-                    className="speech-btn speak-btn"
-                    title="Read page aloud"
-                  >
-                    🔊
-                  </button>
-                ) : (
+            <div
+              ref={bookContainerRef}
+              className="book-spread-container"
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+            >
+              <div className="book-spread-background">
+                {isFlipping && flipDirection === 'next' && nextLeftPage && (
                   <>
-                    {!isPaused ? (
-                      <button
-                        onClick={pauseSpeaking}
-                        className="speech-btn pause-btn speaking-animation"
-                        title="Pause reading"
-                      >
-                        ⏸️
-                      </button>
-                    ) : (
-                      <button
-                        onClick={resumeSpeaking}
-                        className="speech-btn speak-btn"
-                        title="Resume reading"
-                      >
-                        ▶️
-                      </button>
+                    <div className="book-page" style={{ width: `${A4_WIDTH}px`, height: `${A4_HEIGHT}px` }}>
+                      <PageContent
+                        page={nextLeftPage}
+                        pageNumber={currentPageIndex + (isMobile ? 2 : 3)}
+                        onChapterClick={goToPage}
+                        book={book}
+                      />
+                    </div>
+                    {nextRightPage && !isMobile && (
+                      <div className="book-page" style={{ width: `${A4_WIDTH}px`, height: `${A4_HEIGHT}px` }}>
+                        <PageContent
+                          page={nextRightPage}
+                          pageNumber={currentPageIndex + 4}
+                          onChapterClick={goToPage}
+                          book={book}
+                        />
+                      </div>
                     )}
-                    <button
-                      onClick={stopSpeaking}
-                      className="speech-btn stop-btn"
-                      title="Stop reading"
-                    >
-                      ⏹️
-                    </button>
+                  </>
+                )}
+
+                {isFlipping && flipDirection === 'prev' && prevLeftPage && (
+                  <>
+                    <div className="book-page" style={{ width: `${A4_WIDTH}px`, height: `${A4_HEIGHT}px` }}>
+                      <PageContent
+                        page={prevLeftPage}
+                        pageNumber={currentPageIndex - (isMobile ? 0 : 1)}
+                        onChapterClick={goToPage}
+                        book={book}
+                      />
+                    </div>
+                    {prevRightPage && !isMobile && (
+                      <div className="book-page" style={{ width: `${A4_WIDTH}px`, height: `${A4_HEIGHT}px` }}>
+                        <PageContent
+                          page={prevRightPage}
+                          pageNumber={currentPageIndex}
+                          onChapterClick={goToPage}
+                          book={book}
+                        />
+                      </div>
+                    )}
                   </>
                 )}
               </div>
-            </>
+
+              <div className={`book-spread ${isFlipping ? `flipping-${flipDirection}` : ''}`}>
+                {leftPage && (
+                  <div
+                    className="book-page page-left page-flip-animation"
+                    style={{
+                      width: `${A4_WIDTH}px`,
+                      height: `${A4_HEIGHT}px`,
+                      transform: isDragging && canDrag && dragOffset > 0
+                        ? `rotateY(${Math.min(dragOffset / 5, 30)}deg)`
+                        : 'rotateY(0deg)'
+                    }}
+                  >
+                    <PageContent
+                      page={leftPage}
+                      pageNumber={leftPageIndex + 1}
+                      onChapterClick={goToPage}
+                      book={book}
+                    />
+                  </div>
+                )}
+
+                {rightPage && !isMobile && (
+                  <div
+                    className="book-page page-right page-flip-animation"
+                    style={{
+                      width: `${A4_WIDTH}px`,
+                      height: `${A4_HEIGHT}px`,
+                      transform: isDragging && canDrag && dragOffset < 0
+                        ? `rotateY(${Math.max(dragOffset / 5, -30)}deg)`
+                        : 'rotateY(0deg)'
+                    }}
+                  >
+                    <PageContent
+                      page={rightPage}
+                      pageNumber={rightPageIndex + 1}
+                      onChapterClick={goToPage}
+                      book={book}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
           )}
         </div>
 
+        {/* Bottom Instructions */}
         {bookOpened && (
-          <div className="text-center mt-8">
+          <div className="text-center pb-8 px-4">
             <p className="text-white text-sm">
-              🖱️ Drag page edges to flip • Use arrow buttons • Press ← → keys
-            </p>
-            <p className="text-white text-xs mt-2 opacity-75">
-              💡 Click on text to select and copy • 🔊 Use speech controls to read aloud
+              Drag pages to flip • Use arrow keys (← →) • Click text to select
             </p>
           </div>
         )}
@@ -790,15 +1052,15 @@ const getPageText = () => {
   );
 }
 
-// Keep all other component functions the same (PageContent, CoverPage, etc.)
+// Page Content Component (EXACT SAME AS YOUR ORIGINAL)
 function PageContent({ page, pageNumber, onChapterClick, book }) {
   if (page.type === 'cover') {
     return <CoverPage book={book} />;
   }
   if (page.type === 'toc') {
     return (
-      <TableOfContents 
-        chapters={page.content} 
+      <TableOfContents
+        chapters={page.content}
         chapterPageMap={page.chapterPageMap}
         onChapterClick={onChapterClick}
       />
@@ -816,47 +1078,67 @@ function PageContent({ page, pageNumber, onChapterClick, book }) {
   return null;
 }
 
-// ... (rest of the component functions remain the same)
-
-
 function CoverPage({ book }) {
   return (
-    <div className="page-inner bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600 text-white">
-      <div className="h-full flex flex-col justify-center items-center p-8">
+    <div className="page-inner bg-gradient-to-br from-blue-800 via-blue-700 to-blue-900 text-white relative overflow-hidden">
+      {/* Top Logo */}
+      <div className="absolute top-8 left-0 right-0 flex justify-center">
+        <div className="text-2xl font-bold">
+          <span className="text-green-400">PLAB</span>
+          <span className="text-blue-400">MEDI</span>
+        </div>
+      </div>
+
+      <div className="flex-1 flex flex-col justify-center items-center p-12">
         <div className="text-center space-y-6">
-          <div className="text-8xl mb-6">📚</div>
-          <h1 className="text-5xl font-bold leading-tight drop-shadow-2xl px-4 select-text">
-            {book?.title || 'Untitled Book'}
-          </h1>
-          <div className="w-32 h-1 bg-white mx-auto"></div>
-          <div className="space-y-2">
-            <p className="text-2xl">by</p>
-            <p className="text-3xl font-semibold select-text">{book?.author_name || 'Unknown Author'}</p>
+          {/* Book Icon */}
+          <div className="mb-8">
+            <svg className="w-24 h-24 mx-auto text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+            </svg>
           </div>
-          <div className="mt-8 space-y-3">
-            <div className="inline-block px-6 py-3 bg-white/20 backdrop-blur-sm rounded-full text-lg font-medium select-text">
-              {book?.subject_name || 'Subject'}
-            </div>
-            <br />
-            <div className="inline-block px-6 py-3 bg-white/20 backdrop-blur-sm rounded-full text-lg font-medium select-text">
-              {book?.topic_name || 'Topic'}
-            </div>
+
+          {/* Title */}
+          <h1 className="text-5xl font-bold leading-tight px-6 select-text">
+            {book?.title || 'Smart Notes'}
+          </h1>
+
+          {/* Author */}
+          <div className="space-y-2 pt-2">
+            <p className="text-lg text-blue-200">by {book?.author_name || 'Dr. Karam Singh'}</p>
+          </div>
+
+          {/* Divider Line */}
+          <div className="w-48 h-px bg-blue-300/50 mx-auto my-6"></div>
+
+          {/* Edition/Subject */}
+          <div className="space-y-3 pt-2">
+            <p className="text-base text-blue-100 select-text">
+              {book?.subject_name || 'Clinical Practice Edition'}
+            </p>
           </div>
         </div>
+      </div>
+
+      {/* Bottom Text */}
+      <div className="absolute bottom-8 left-0 right-0 text-center space-y-2">
+        <p className="text-sm text-blue-200">Tap to open</p>
+        <p className="text-xs text-blue-300">{book?.topic_name || '2025 Edition'}</p>
       </div>
     </div>
   );
 }
 
+
 function TableOfContents({ chapters, chapterPageMap, onChapterClick }) {
   return (
-    <div className="page-inner bg-gradient-to-br from-white to-gray-50">
-      <div className="h-full flex flex-col p-8">
-        <h2 className="text-3xl font-bold text-gray-800 mb-6 text-center border-b-4 border-blue-600 pb-4 select-text">
-          Table of Contents
+    <div className="page-inner bg-white">
+      <div className="flex-1 flex flex-col p-10">
+        <h2 className="text-3xl font-bold text-gray-900 mb-6 select-text">
+          Course Contents
         </h2>
         
-        <div className="space-y-3 overflow-y-auto flex-1">
+        <div className="flex-1 space-y-0 overflow-y-auto">
           {chapters.map((chapter, index) => {
             const pageIndex = chapterPageMap[chapter.id];
             return (
@@ -868,18 +1150,20 @@ function TableOfContents({ chapters, chapterPageMap, onChapterClick }) {
                     onChapterClick(pageIndex);
                   }
                 }}
-                className="w-full flex items-center gap-4 p-3 hover:bg-blue-50 transition-all rounded-lg border-l-4 border-blue-600 cursor-pointer"
+                className="w-full text-left p-6 hover:bg-gray-50 transition-all cursor-pointer border-b border-gray-200 last:border-b-0"
               >
-                <div className="flex-shrink-0 w-10 h-10 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold">
-                  {index + 1}
-                </div>
-                <div className="flex-1 text-left">
-                  <h3 className="font-semibold text-base text-gray-800 select-text">
-                    {chapter.title}
+                <div className="space-y-2">
+                  <h3 className="font-semibold text-base text-gray-900 select-text">
+                    Chapter {index + 1}: {chapter.title}
                   </h3>
-                </div>
-                <div className="text-sm text-gray-500">
-                  Page {pageIndex + 1}
+                  {chapter.description && (
+                    <p className="text-sm text-gray-600 select-text">
+                      {chapter.description}
+                    </p>
+                  )}
+                  <div className="text-sm text-blue-600 font-medium">
+                    Page {pageIndex + 1}
+                  </div>
                 </div>
               </button>
             );
@@ -890,71 +1174,104 @@ function TableOfContents({ chapters, chapterPageMap, onChapterClick }) {
   );
 }
 
-function ChapterTitlePage({ chapter, pageNumber }) {
+
+function ChapterTitlePage({ chapter, pageNumber, chapterIndex }) {
   return (
-    <div className="page-inner bg-gradient-to-br from-indigo-500 to-purple-600 text-white">
-      <div className="h-full flex flex-col justify-center items-center p-8 relative">
-        <div className="text-center space-y-6">
-          <div className="text-7xl mb-4">📖</div>
-          <div className="space-y-4">
-            <h2 className="text-4xl font-bold leading-tight px-6 select-text">
-              {chapter.title}
-            </h2>
-            <div className="w-24 h-1 bg-white mx-auto"></div>
-          </div>
+    <div className="page-inner bg-white relative">
+      <div className="flex flex-col justify-center items-center p-12 h-full">
+        <div className="text-center space-y-6 max-w-2xl">
+          {/* Chapter Number Label */}
+          <p className="text-sm text-gray-600 uppercase tracking-wide select-text">
+            CHAPTER {chapterIndex || 1}
+          </p>
+
+          {/* Chapter Title */}
+          <h2 className="text-4xl font-bold leading-tight text-gray-900 select-text">
+            {chapter.title}
+          </h2>
+
+          {/* Blue Underline */}
+          <div className="w-16 h-1 bg-blue-600 mx-auto"></div>
+
+          {/* Chapter Description - Static for now */}
+          <p className="text-base text-gray-700 leading-relaxed px-8 select-text mt-8">
+            This chapter covers essential endocrinology concepts including diabetes mellitus, 
+            thyroid disorders, adrenal pathology, and metabolic syndromes. Key topics include 
+            pathophysiology, clinical manifestations, diagnostic approaches, and evidence-based 
+            management strategies.
+          </p>
         </div>
-        
-        <div className="absolute bottom-6 left-0 right-0 text-center">
-          <span className="text-sm opacity-75">{pageNumber}</span>
+
+        {/* Page Number at Bottom */}
+        <div className="absolute bottom-8 left-0 right-0 text-center">
+          <span className="text-sm text-gray-500">{pageNumber}</span>
         </div>
       </div>
     </div>
   );
 }
+
 
 function ContentPage({ page, chapterTitle, pageNumber }) {
+  // A4 dimensions
+  const HEADER_HEIGHT = 60;
+  const FOOTER_HEIGHT = 50;
+  const A4_HEIGHT = 1300;
+  const CONTENT_HEIGHT = A4_HEIGHT - HEADER_HEIGHT - FOOTER_HEIGHT; // 1003px
+
   return (
     <div className="page-inner bg-gradient-to-br from-white to-gray-50">
-      <div className="h-full flex flex-col p-8">
-        <div className="pb-3 border-b-2 border-gray-300 flex-shrink-0">
-          <p className="text-xs text-gray-500 uppercase tracking-wide select-text">{chapterTitle}</p>
-        </div>
+      {/* Header - Fixed 60px */}
+      <div
+        className="flex-shrink-0 pb-4 border-b-2 border-gray-300 px-10 pt-4"
+        style={{ height: `${HEADER_HEIGHT}px` }}
+      >
+        <p className="text-xs text-gray-500 uppercase tracking-wide select-text truncate">
+          {chapterTitle}
+        </p>
+      </div>
 
-        <div className="flex-1 mt-4 overflow-y-auto">
-          <div 
-            className="book-content-text select-text"
-            style={{
-              fontSize: '16px',
-              lineHeight: '1.75',
-              fontFamily: 'system-ui, -apple-system, sans-serif'
-            }}
-            dangerouslySetInnerHTML={{ 
-              __html: page.content || '<p class="text-gray-400 italic text-center mt-20">No content available</p>' 
-            }}
-          />
-        </div>
+      {/* Content Area - Calculated exact height */}
+      <div
+        className="px-10 py-8 overflow-y-auto"
+        style={{
+          height: `${CONTENT_HEIGHT}px`, // Exact height instead of flex-1
+          
+        }}
+      >
+        <div
+          className="book-content-text select-text"
+          dangerouslySetInnerHTML={{
+            __html: page.content || '<p class="text-gray-400 italic text-center mt-20">No content available</p>'
+          }}
+        />
+      </div>
 
-        <div className="pt-4 text-center flex-shrink-0 border-t border-gray-200 mt-auto">
-          <span className="text-sm text-gray-400">{pageNumber}</span>
-        </div>
+      {/* Footer - Fixed 60px */}
+      <div
+        className="flex-shrink-0 pt-4 text-center border-t border-gray-200 pb-4"
+        style={{ height: `${FOOTER_HEIGHT}px` }}
+      >
+        <span className="text-sm text-gray-400">{pageNumber}</span>
       </div>
     </div>
   );
 }
+
 
 function BackCoverPage({ book }) {
   return (
     <div className="page-inner bg-gradient-to-br from-gray-800 to-gray-900 text-white">
-      <div className="h-full flex flex-col justify-center items-center p-8">
-        <div className="text-center space-y-6">
-          <div className="text-7xl mb-4">✨</div>
-          <h2 className="text-3xl font-bold">Thank You for Reading!</h2>
+      <div className="flex-1 flex flex-col justify-center items-center p-12">
+        <div className="text-center space-y-8">
+          <div className="text-8xl mb-6">✨</div>
+          <h2 className="text-4xl font-bold">Thank You for Reading!</h2>
           <div className="w-32 h-1 bg-white mx-auto"></div>
-          <p className="text-2xl font-semibold select-text">{book?.title}</p>
-          <p className="text-lg text-gray-300 select-text">by {book?.author_name}</p>
-          <div className="mt-8 space-y-2">
-            <p className="text-sm text-gray-400 select-text">{book?.subject_name}</p>
-            <p className="text-sm text-gray-400 select-text">{book?.topic_name}</p>
+          <p className="text-3xl font-semibold select-text px-8">{book?.title}</p>
+          <p className="text-xl text-gray-300 select-text">by {book?.author_name}</p>
+          <div className="mt-10 space-y-3">
+            <p className="text-base text-gray-400 select-text">{book?.subject_name}</p>
+            <p className="text-base text-gray-400 select-text">{book?.topic_name}</p>
           </div>
         </div>
       </div>
