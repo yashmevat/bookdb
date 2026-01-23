@@ -22,6 +22,9 @@ export default function BookReaderPage() {
   const [dragStartX, setDragStartX] = useState(0);
   const [dragCurrentX, setDragCurrentX] = useState(0);
   const [canDrag, setCanDrag] = useState(false);
+  const [bookScale, setBookScale] = useState(0.7);
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1920);
   const bookContainerRef = useRef(null);
 
   // Speech synthesis states
@@ -38,6 +41,7 @@ export default function BookReaderPage() {
   useEffect(() => {
     const checkMobile = () => {
       setIsMobile(window.innerWidth < 1024);
+      setWindowWidth(window.innerWidth);
     };
     
     checkMobile();
@@ -383,6 +387,19 @@ const prevPage = () => {
     setDragCurrentX(0);
   };
 
+  // Calculate responsive base scale based on window width
+  const getResponsiveScale = () => {
+    if (windowWidth <= 400) return 0.42;
+    if (windowWidth <= 480) return 0.48;
+    if (windowWidth <= 600) return 0.55;
+    if (windowWidth <= 768) return 0.65;
+    if (windowWidth <= 850) return 0.75;
+    if (windowWidth <= 1024) return 0.9;
+    if (windowWidth <= 1400) return 0.7;
+    if (windowWidth <= 1700) return 0.85;
+    return 1; // Default scale for larger screens
+  };
+
   const handleTouchStart = (e) => {
     if (!bookOpened) return;
     
@@ -462,7 +479,7 @@ const prevPage = () => {
 
 
         .book-page {
-          background: white;
+          background: ${isDarkMode ? '#1A1A1A' : 'white'};
           border-radius: 4px;
           box-shadow:
             0 20px 60px rgba(0, 0, 0, 0.3),
@@ -515,15 +532,22 @@ const prevPage = () => {
         @keyframes flipNextSimple {
           0% {
             transform: rotateY(0deg);
-            opacity: 1;
+            opacity: 0;
             z-index: 10;
+          }
+          25% {
+            transform: rotateY(-45deg);
+            opacity: 1;
           }
           50% {
             transform: rotateY(-90deg);
-            opacity: 0;
+            opacity: 1;
+            z-index: 0;
           }
-          51% {
-            opacity: 0;
+            
+          75% {
+            transform: rotateY(-135deg);
+            opacity: 1;
             z-index: 0;
           }
           100% {
@@ -536,15 +560,24 @@ const prevPage = () => {
         @keyframes flipPrevSimple {
           0% {
             transform: rotateY(0deg);
-            opacity: 1;
+            opacity: 0;
             z-index: 10;
           }
-          50% {
-            transform: rotateY(90deg);
-            opacity: 0;
+          25% {
+            transform: rotateY(45deg);
+            opacity: 1;
           }
-          51% {
-            opacity: 0;
+          50% { 
+          
+            transform: rotateY(90deg);
+            opacity: 1;
+            z-index: 0;
+          }
+            
+          75% { 
+          
+            transform: rotateY(135deg);
+            opacity: 1;
             z-index: 0;
           }
           100% {
@@ -582,7 +615,7 @@ const prevPage = () => {
           cursor: text !important;
         }
 
-        ,.book-closed {
+        .book-closed {
           cursor: pointer;
           transition: transform 0.3s ease;
               transform: scale(0.7);
@@ -646,56 +679,56 @@ const prevPage = () => {
 
         /* Responsive Viewport Scaling */
       @media (max-width: 1700px) {
-  .book-spread-container,.book-closed {
+  .book-closed {
     transform: scale(0.85);
     transform-origin: center top;
   }
 }
 
 @media (max-width: 1400px) {
-  .book-spread-container,.book-closed {
+  .book-closed {
     transform: scale(0.7);
     transform-origin: center top;
   }
 }
 
 @media (max-width: 1024px) {
-  .book-spread-container,.book-closed {
+  .book-closed {
     transform: scale(0.9);
     transform-origin: center top;
   }
 }
 
 @media (max-width: 850px) {
-  .book-spread-container,.book-closed {
+  .book-closed {
     transform: scale(0.75);
     transform-origin: center top;
   }
 }
 
 @media (max-width: 768px) {
-  .book-spread-container,.book-closed {
+  .book-closed {
     transform: scale(0.65);
     transform-origin: center top;
   }
 }
 
 @media (max-width: 600px) {
-  .book-spread-container,.book-closed {
+  .book-closed {
     transform: scale(0.55);
     transform-origin: center top;
   }
 }
 
 @media (max-width: 480px) {
-  .book-spread-container,.book-closed {
+  .book-closed {
     transform: scale(0.48);
     transform-origin: center top;
   }
 }
 
 @media (max-width: 400px) {
-  .book-spread-container,.book-closed {
+  .book-closed {
     transform: scale(0.42);
     transform-origin: center top;
   }
@@ -792,6 +825,10 @@ const prevPage = () => {
           .navbar-right .divider {
             display: none !important;
           }
+          
+          .scale-slider-container {
+            display: none !important;
+          }
         }
 
         @media (max-width: 480px) {
@@ -810,121 +847,161 @@ const prevPage = () => {
           
       `}</style>
 
-      <div className="min-h-screen bg-[#F4F1EA]">
+      <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'bg-[#2A2A2A]' : 'bg-[#F4F1EA]'}`}>
         {/* Top Navbar - Fully Responsive */}
-        <div className="sticky top-0 z-50 bg-white border-b border-gray-200 shadow-sm">
-  <div className="max-w-full mx-auto px-2 sm:px-4 py-2">
-    <div className="navbar-container">
-      {/* Left: Back Button */}
-      <div className="navbar-left">
-        <Link href="/" className="control-btn">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+        <div className={`sticky top-0 z-50 transition-colors duration-300 shadow-sm ${isDarkMode ? 'bg-[#2A2A2A] border-b border-gray-700' : 'bg-white border-b border-gray-200'}`}>
+  <div className="max-w-full mx-auto px-2 sm:px-4 md:px-6 py-2 md:py-3">
+    <div className="flex items-center justify-between gap-2 sm:gap-4">
+      
+      {/* Left: Close Button */}
+      <div className="flex items-center gap-1 sm:gap-2">
+        <button 
+          onClick={closeBook} 
+          className={`p-1.5 sm:p-2 rounded-full transition-colors ${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+          title="Close"
+        >
+          <svg className={`w-4 h-4 sm:w-5 sm:h-5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
-          <span>Back</span>
-        </Link>
-      </div>
+        </button>
 
-      {/* Center: Book Title & Page Info */}
-      <div className="navbar-center">
-        <h1 className="navbar-title text-gray-900 truncate px-2">
-          {book?.title}
-        </h1>
-        {bookOpened && (
-          <p className="navbar-page-info text-xs text-gray-600 mt-0.5">
-            {isMobile 
-              ? `Page ${leftPageIndex + 1}/${allPages.length}`
-              : `Page ${leftPageIndex + 1}-${rightPageIndex + 1}/${allPages.length}`
-            }
-          </p>
-        )}
-      </div>
-
-      {/* Right: Controls */}
-      <div className="navbar-right">
+        {/* Navigation Arrows */}
         {bookOpened && (
           <>
-            {/* Navigation */}
             <button
               onClick={prevPage}
               disabled={currentPageIndex === 0 || isFlipping}
-              className="control-btn"
-              title="Previous Page (←)"
+              className={`p-1.5 sm:p-2 rounded-full transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+              title="Previous Page"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className={`w-4 h-4 sm:w-5 sm:h-5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
-              <span>Prev</span>
             </button>
 
             <button
               onClick={nextPage}
               disabled={currentPageIndex >= (isMobile ? allPages.length - 1 : allPages.length - 2) || isFlipping}
-              className="control-btn"
-              title="Next Page (→)"
+              className={`p-1.5 sm:p-2 rounded-full transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+              title="Next Page"
             >
-              <span>Next</span>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className={`w-4 h-4 sm:w-5 sm:h-5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </button>
+          </>
+        )}
+      </div>
 
-            {/* Divider - Hidden on mobile */}
-            <div className="h-8 w-px bg-gray-300 divider"></div>
+      {/* Center: Page Number */}
+      {bookOpened && (
+        <div className="flex-1 flex justify-center">
+          <span className={`text-xs sm:text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+            {isMobile 
+              ? `${leftPageIndex + 1}/${allPages.length}`
+              : `${leftPageIndex + 1}/${allPages.length}`
+            }
+          </span>
+        </div>
+      )}
 
-            {/* Audio Controls */}
+      {/* Right: Controls */}
+      <div className="flex items-center gap-1 sm:gap-3">
+        {bookOpened && (
+          <>
+            {/* Scale Range Input */}
+            <div className="scale-slider-container flex items-center gap-2 mr-2">
+              <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Scale:</span>
+              <input
+                type="range"
+                min="0.5"
+                max="1.5"
+                step="0.1"
+                value={bookScale}
+                onChange={(e) => setBookScale(parseFloat(e.target.value))}
+                className="w-32 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                style={{
+                  background: `linear-gradient(to right, #3B82F6 0%, #3B82F6 ${((bookScale - 0.5) / 1) * 100}%, #E5E7EB ${((bookScale - 0.5) / 1) * 100}%, #E5E7EB 100%)`
+                }}
+              />
+              <span className={`text-xs w-8 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{Math.round(bookScale * 100)}%</span>
+            </div>
+            
+            <div className={`h-6 w-px ${isDarkMode ? 'bg-gray-600' : 'bg-gray-300'}`}></div>
+            {/* Bookmark Icon */}
+            <button 
+              className={`p-1.5 sm:p-2 rounded-full transition-colors ${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+              title="Bookmark"
+            >
+              <svg className={`w-4 h-4 sm:w-5 sm:h-5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+              </svg>
+            </button>
+
+            {/* Dark Mode Toggle */}
+            <button 
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              className={`p-1.5 sm:p-2 rounded-full transition-colors ${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+              title={isDarkMode ? 'Light Mode' : 'Dark Mode'}
+            >
+              {isDarkMode ? (
+                <svg className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4 sm:w-5 sm:h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                </svg>
+              )}
+            </button>
+
+            {/* Audio/Speaker Icon */}
             {!isSpeaking ? (
-              <button onClick={startSpeaking} className="control-btn" title="Read Aloud">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <button 
+                onClick={startSpeaking} 
+                className={`p-1.5 sm:p-2 rounded-full transition-colors ${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+                title="Read Aloud"
+              >
+                <svg className={`w-4 h-4 sm:w-5 sm:h-5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
                 </svg>
-                <span>Play</span>
               </button>
             ) : (
               <>
                 {!isPaused ? (
-                  <button onClick={pauseSpeaking} className="control-btn active speaking" title="Pause">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <button 
+                    onClick={pauseSpeaking} 
+                    className={`p-1.5 sm:p-2 rounded-full transition-colors ${isDarkMode ? 'bg-blue-900/30' : 'bg-blue-50'}`}
+                    title="Pause"
+                  >
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6" />
                     </svg>
-                    <span>Pause</span>
                   </button>
                 ) : (
-                  <button onClick={resumeSpeaking} className="control-btn active" title="Resume">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                  <button 
+                    onClick={resumeSpeaking} 
+                    className={`p-1.5 sm:p-2 rounded-full transition-colors ${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+                    title="Resume"
+                  >
+                    <svg className={`w-4 h-4 sm:w-5 sm:h-5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`} fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M8 5v14l11-7z" />
                     </svg>
-                    <span>Resume</span>
                   </button>
                 )}
-                <button onClick={() => stopSpeaking(false)} className="control-btn" title="Stop">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
-                  </svg>
-                  <span>Stop</span>
-                </button>
               </>
             )}
-
-            <div className="h-8 w-px bg-gray-300 divider"></div>
-
-            <button onClick={closeBook} className="control-btn" title="Close Book">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-              <span>Close</span>
-            </button>
           </>
         )}
       </div>
     </div>
   </div>
-        </div>
+</div>
+
 
 
         {/* Book Content Area */}
-        <div className="flex justify-center items-center px-4 py-8">
+        <div className="flex justify-center items-center px-2 sm:px-4 py-4 sm:py-8 min-h-[calc(100vh-60px)]">
           {!bookOpened ? (
             <div className="book-closed" onClick={openBook}>
               <div className="book-page" style={{ width: `${A4_WIDTH}px`, height: `${A4_HEIGHT}px` }}>
@@ -938,6 +1015,7 @@ const prevPage = () => {
             <div
               ref={bookContainerRef}
               className="book-spread-container"
+              style={{ transform: `scale(${getResponsiveScale() * bookScale})`, transformOrigin: 'center top' }}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
