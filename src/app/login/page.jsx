@@ -2,12 +2,14 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/context/AuthContext';
 
 export default function LoginPage() {
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const { login, checkAuth } = useAuth(); // Use context login
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -15,26 +17,27 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
+      // Use context login function
+      const result = await login(formData);
 
-      const data = await res.json();
-
-      if (data.success) {
+      if (result.success) {
+        // Force auth state refresh
+        await checkAuth();
+        
         // Redirect based on role
-        if (data.user.role === 'superadmin') {
+        if (result.user.role === 'superadmin') {
           router.push('/dashboard/authors');
-        } else if (data.user.role === 'author') {
+        } else if (result.user.role === 'author') {
           router.push('/author/books');
         }
+        
+        // Force router refresh to update layouts
         router.refresh();
       } else {
-        setError(data.error || 'Login failed');
+        setError(result.error || 'Login failed');
       }
     } catch (err) {
+      console.error('Login error:', err);
       setError('Something went wrong. Please try again.');
     } finally {
       setLoading(false);

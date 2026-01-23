@@ -1,6 +1,6 @@
 // context/AuthContext.jsx
 'use client';
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
 const AuthContext = createContext();
@@ -10,39 +10,74 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  useEffect(() => {
-    checkAuth();
-  }, []);
-
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async () => {
     try {
-      const res = await fetch('/api/auth/me');
+      const res = await fetch('/api/auth/me', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
       const data = await res.json();
       
-      if (data.success) {
+      if (data.success && data.user) {
         setUser(data.user);
+        return true;
       } else {
         setUser(null);
+        return false;
       }
     } catch (error) {
+      console.error('Auth check failed:', error);
       setUser(null);
+      return false;
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const logout = async () => {
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
+
+  const login = useCallback(async (credentials) => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
-      setUser(null);
-      router.push('/login');
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(credentials),
+      });
+
+      const data = await res.json();
+
+      if (data.success && data.user) {
+        setUser(data.user); // Update state immediately
+        return { success: true, user: data.user };
+      } else {
+        return { success: false, error: data.error || 'Login failed' };
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      return { success: false, error: 'Login failed' };
+    }
+  }, []);
+
+  const logout = useCallback(async () => {
+    try {
+      await fetch('/api/auth/logout', { 
+        method: 'POST',
+        credentials: 'include',
+      });
     } catch (error) {
       console.error('Logout failed:', error);
+    } finally {
+      setUser(null);
+      router.push('/login');
+      router.refresh();
     }
-  };
+  }, [router]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, logout, checkAuth }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, checkAuth, isAuthenticated: !!user }}>
       {children}
     </AuthContext.Provider>
   );
