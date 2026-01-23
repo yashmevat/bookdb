@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 
 export default function AuthorsPage() {
   const [authors, setAuthors] = useState([]);
-  const [formData, setFormData] = useState({ username: '', email: '', password: '' });
+  const [formData, setFormData] = useState({ username: '', email: '' });
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -14,41 +14,66 @@ export default function AuthorsPage() {
   }, []);
 
   const fetchAuthors = async () => {
-    const res = await fetch('/api/authors');
-    const data = await res.json();
-    if (data.success) setAuthors(data.data);
+    try {
+      const res = await fetch('/api/authors');
+      const data = await res.json();
+      if (data.success) {
+        setAuthors(data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching authors:', error);
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     
-    const res = await fetch('/api/authors', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(formData)
-    });
-    
-    const data = await res.json();
-    if (data.success) {
-      setFormData({ username: '', email: '', password: '' });
-      fetchAuthors();
-      setShowForm(false);
-      alert('Author created successfully!');
-    } else {
-      alert('Error: ' + data.error);
+    try {
+      const res = await fetch('/api/authors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      });
+      
+      const data = await res.json();
+      
+      if (data.success) {
+        setFormData({ username: '', email: '' });
+        fetchAuthors();
+        setShowForm(false);
+        
+        if (data.emailSent) {
+          alert('✅ Author created successfully!\n\n📧 Login credentials have been sent to: ' + formData.email);
+        } else {
+          alert(data.message);
+        }
+      } else {
+        alert('❌ Error: ' + data.error);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      alert('❌ An unexpected error occurred. Please try again.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleDelete = async (id) => {
     if (!confirm('Are you sure you want to delete this author?')) return;
     
-    const res = await fetch(`/api/authors?id=${id}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (data.success) {
-      fetchAuthors();
-      alert('Author deleted successfully!');
+    try {
+      const res = await fetch(`/api/authors?id=${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        fetchAuthors();
+        alert('✅ Author deleted successfully!');
+      } else {
+        alert('❌ Error: ' + data.error);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      alert('❌ Failed to delete author');
     }
   };
 
@@ -82,7 +107,7 @@ export default function AuthorsPage() {
           </div>
         </div>
 
-        {/* Add Author Form - Collapsible */}
+        {/* Add Author Form */}
         {showForm && (
           <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border border-gray-200 animate-slideDown">
             <div className="flex items-center justify-between mb-6">
@@ -128,19 +153,15 @@ export default function AuthorsPage() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Password *
-                </label>
-                <input
-                  type="password"
-                  placeholder="Enter password (min 6 characters)"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  required
-                  minLength={6}
-                />
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-start gap-2">
+                  <svg className="w-5 h-5 text-blue-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div className="text-sm text-blue-800">
+                    <strong>📧 Auto-Generated Password:</strong> A secure password will be automatically generated and sent to the author's email address.
+                  </div>
+                </div>
               </div>
 
               <div className="flex gap-3">
@@ -155,10 +176,10 @@ export default function AuthorsPage() {
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                       </svg>
-                      Adding...
+                      Creating & Sending Email...
                     </span>
                   ) : (
-                    'Add Author'
+                    'Create Author & Send Credentials'
                   )}
                 </button>
                 <button
