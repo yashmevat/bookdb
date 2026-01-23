@@ -32,7 +32,7 @@ export async function sendWelcomeEmail(to, username, password) {
   try {
     const mailOptions = {
       from: {
-        name: 'Digital Library',
+        name: 'PlabCoach',
         address: process.env.EMAIL_USER,
       },
       to: to,
@@ -124,7 +124,7 @@ export async function sendWelcomeEmail(to, username, password) {
         <body>
           <div class="container">
             <div class="header">
-              <h1>📚 Welcome to Digital Library!</h1>
+              <h1>Welcome to PlabCoach</h1>
             </div>
             
             <div class="content">
@@ -132,7 +132,7 @@ export async function sendWelcomeEmail(to, username, password) {
               <p>Your author account has been successfully created. You can now start managing your books and content on our platform.</p>
               
               <div class="credentials-box">
-                <h3 style="margin-top: 0; color: #667eea;">🔐 Your Login Credentials</h3>
+                <h3 style="margin-top: 0; color: #667eea;">Your Login Credentials</h3>
                 
                 <div class="credential-item">
                   <div class="credential-label">Username:</div>
@@ -167,7 +167,6 @@ export async function sendWelcomeEmail(to, username, password) {
               
               <p style="margin-top: 30px;">If you have any questions or need assistance, feel free to reach out to our support team.</p>
               
-              <p>Happy Writing! 📝</p>
               <p><strong>The Digital Library Team</strong></p>
             </div>
             
@@ -201,10 +200,10 @@ The Digital Library Team
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log('✅ Email sent successfully:', info.messageId);
+    console.log('Email sent successfully:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('❌ Error sending email:', error);
+    console.error(' Error sending email:', error);
     return { success: false, error: error.message };
   }
 }
