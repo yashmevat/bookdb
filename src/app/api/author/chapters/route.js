@@ -8,7 +8,7 @@ export async function GET(request) {
   try {
     const user = await getUser();
     
-    if (!user || user.role !== 'author') {
+    if (!user || user.role_id !== 2) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -23,7 +23,7 @@ export async function GET(request) {
          FROM chapters c 
          LEFT JOIN books b ON c.book_id = b.id
          WHERE c.id = ? AND c.author_id = ?`,
-        [chapter_id, user.userId]
+        [chapter_id, user.id]
       );
       return NextResponse.json({ success: true, data: rows });
     }
@@ -32,7 +32,7 @@ export async function GET(request) {
     if (book_id) {
       const [bookCheck] = await pool.query(
         'SELECT id FROM books WHERE id = ? AND author_id = ?',
-        [book_id, user.userId]
+        [book_id, user.id]
       );
 
       if (bookCheck.length === 0) {
@@ -48,7 +48,7 @@ export async function GET(request) {
          LEFT JOIN books b ON c.book_id = b.id
          WHERE c.book_id = ? AND c.author_id = ?
          ORDER BY c.order_num ASC, c.created_at ASC`,
-        [book_id, user.userId]
+        [book_id, user.id]
       );
       
       return NextResponse.json({ success: true, data: rows });
@@ -61,7 +61,7 @@ export async function GET(request) {
        LEFT JOIN books b ON c.book_id = b.id
        WHERE c.author_id = ?
        ORDER BY c.created_at DESC`,
-      [user.userId]
+      [user.id]
     );
     
     return NextResponse.json({ success: true, data: rows });
@@ -75,7 +75,7 @@ export async function POST(request) {
   try {
     const user = await getUser();
     
-    if (!user || user.role !== 'author') {
+    if (!user || user.role_id !== 2) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -92,7 +92,7 @@ export async function POST(request) {
     // Verify book belongs to author
     const [books] = await pool.query(
       'SELECT id FROM books WHERE id = ? AND author_id = ?',
-      [book_id, user.userId]
+      [book_id, user.id]
     );
 
     if (books.length === 0) {
@@ -105,7 +105,7 @@ export async function POST(request) {
     // Insert chapter with title, author_id, book_id, order_num
     const [result] = await pool.query(
       'INSERT INTO chapters (title, author_id, book_id, order_num) VALUES (?, ?, ?, ?)',
-      [title, user.userId, book_id, order_num || 0]
+      [title, user.id, book_id, order_num || 0]
     );
     
     return NextResponse.json({ 
@@ -113,7 +113,7 @@ export async function POST(request) {
       data: { 
         id: result.insertId, 
         title, 
-        author_id: user.userId,
+        author_id: user.id,
         book_id, 
         order_num: order_num || 0
       } 
@@ -128,7 +128,7 @@ export async function PUT(request) {
   try {
     const user = await getUser();
     
-    if (!user || user.role !== 'author') {
+    if (!user || user.role_id !== 2) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -144,7 +144,7 @@ export async function PUT(request) {
     // Verify chapter belongs to author
     const [chapterCheck] = await pool.query(
       'SELECT id FROM chapters WHERE id = ? AND author_id = ?',
-      [id, user.userId]
+      [id, user.id]
     );
 
     if (chapterCheck.length === 0) {
@@ -157,7 +157,7 @@ export async function PUT(request) {
     // Update chapter
     await pool.query(
       'UPDATE chapters SET title = ?, order_num = ? WHERE id = ? AND author_id = ?',
-      [title, order_num || 0, id, user.userId]
+      [title, order_num || 0, id, user.id]
     );
     
     return NextResponse.json({ success: true });
@@ -171,7 +171,7 @@ export async function DELETE(request) {
   try {
     const user = await getUser();
     
-    if (!user || user.role !== 'author') {
+    if (!user || user.role_id !== 2) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -188,7 +188,7 @@ export async function DELETE(request) {
     // Verify chapter belongs to author
     const [chapterCheck] = await pool.query(
       'SELECT id FROM chapters WHERE id = ? AND author_id = ?',
-      [id, user.userId]
+      [id, user.id]
     );
 
     if (chapterCheck.length === 0) {
@@ -201,7 +201,7 @@ export async function DELETE(request) {
     // Delete chapter (pages will be deleted automatically due to CASCADE)
     await pool.query(
       'DELETE FROM chapters WHERE id = ? AND author_id = ?', 
-      [id, user.userId]
+      [id, user.id]
     );
     
     return NextResponse.json({ success: true });

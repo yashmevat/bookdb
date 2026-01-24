@@ -5,15 +5,25 @@ import { getUser } from '@/lib/auth';
 import bcrypt from 'bcrypt';
 import { generatePassword, sendWelcomeEmail } from '@/lib/mailer';
 
+// Role IDs
+const ROLE_SUPERADMIN = 1;
+const ROLE_AUTHOR = 2;
+const ROLE_USER = 3;
+
 export async function GET() {
   try {
     const user = await getUser();
-    if (!user || user.role !== 'superadmin') {
+    if (!user || user.role_id !== ROLE_SUPERADMIN) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
     const [rows] = await pool.query(
-      "SELECT id, username, email, role, created_at FROM users WHERE role = 'author' ORDER BY created_at DESC"
+      `SELECT u.id, u.username, u.email, u.role_id, r.role_name, u.created_at 
+       FROM users u 
+       JOIN roles r ON r.id = u.role_id 
+       WHERE u.role_id = ? 
+       ORDER BY u.created_at DESC`,
+      [ROLE_AUTHOR]
     );
     return NextResponse.json({ success: true, data: rows });
   } catch (error) {
@@ -24,7 +34,7 @@ export async function GET() {
 export async function POST(request) {
   try {
     const user = await getUser();
-    if (!user || user.role !== 'superadmin') {
+    if (!user || user.role_id !== ROLE_SUPERADMIN) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -63,10 +73,10 @@ export async function POST(request) {
     // Hash the password
     const hashedPassword = await bcrypt.hash(randomPassword, 10);
 
-    // Insert author into database
+    // Insert author into database with role_id = 2 (author)
     const [result] = await pool.query(
-      'INSERT INTO users (username, email, password, role) VALUES (?, ?, ?, ?)',
-      [username, email, hashedPassword, 'author']
+      'INSERT INTO users (username, email, password, role_id) VALUES (?, ?, ?, ?)',
+      [username, email, hashedPassword, ROLE_AUTHOR]
     );
 
     console.log('✅ Author created with ID:', result.insertId);
@@ -86,7 +96,7 @@ export async function POST(request) {
           id: result.insertId, 
           username, 
           email, 
-          role: 'author',
+          role_id: ROLE_AUTHOR,
           tempPassword: randomPassword // Only return if email failed
         },
         emailSent: false,
@@ -104,7 +114,7 @@ export async function POST(request) {
         id: result.insertId, 
         username, 
         email, 
-        role: 'author' 
+        role_id: ROLE_AUTHOR
       },
       emailSent: true
     });
@@ -121,7 +131,7 @@ export async function POST(request) {
 export async function DELETE(request) {
   try {
     const user = await getUser();
-    if (!user || user.role !== 'superadmin') {
+    if (!user || user.role_id !== ROLE_SUPERADMIN) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -137,8 +147,8 @@ export async function DELETE(request) {
 
     // Check if author exists
     const [author] = await pool.query(
-      'SELECT id, username FROM users WHERE id = ? AND role = ?',
-      [id, 'author']
+      'SELECT id, username FROM users WHERE id = ? AND role_id = ?',
+      [id, ROLE_AUTHOR]
     );
 
     if (author.length === 0) {
@@ -149,7 +159,7 @@ export async function DELETE(request) {
     }
 
     // Delete the author
-    await pool.query('DELETE FROM users WHERE id = ? AND role = ?', [id, 'author']);
+    await pool.query('DELETE FROM users WHERE id = ? AND role_id = ?', [id, ROLE_AUTHOR]);
     
     console.log('✅ Author deleted:', author[0].username);
 

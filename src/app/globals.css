@@ -174,19 +174,17 @@ body {
   position: relative;
 }
 
-/* Book content text - NO SCROLL */
+/* Book content text - Proportional Font Scaling */
 .book-content-text {
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: 15px;
+  font-size: calc(15px * var(--font-scale, 1));
   line-height: 1.8;
   color: #2d2d2d;
   text-align: justify;
-  overflow: hidden !important;
-  max-height: 100%;
 }
 
 .book-content-text h1 {
-  font-size: 26px;
+  font-size: calc(26px * var(--font-scale, 1));
   font-weight: bold;
   color: #1a1a1a;
   margin-top: 1em;
@@ -195,7 +193,7 @@ body {
 }
 
 .book-content-text h2 {
-  font-size: 22px;
+  font-size: calc(22px * var(--font-scale, 1));
   font-weight: bold;
   color: #1a1a1a;
   margin-top: 0.8em;
@@ -204,7 +202,7 @@ body {
 }
 
 .book-content-text h3 {
-  font-size: 18px;
+  font-size: calc(18px * var(--font-scale, 1));
   font-weight: 600;
   color: #2a2a2a;
   margin-top: 0.8em;
@@ -214,6 +212,7 @@ body {
 
 .book-content-text p {
   margin-bottom: 0.8em;
+  font-size: calc(15px * var(--font-scale, 1));
 }
 
 .book-content-text strong {
@@ -229,10 +228,12 @@ body {
 .book-content-text ol {
   margin-left: 2em;
   margin-bottom: 0.8em;
+  font-size: calc(15px * var(--font-scale, 1));
 }
 
 .book-content-text li {
   margin-bottom: 0.4em;
+  font-size: calc(15px * var(--font-scale, 1));
 }
 
 .book-content-text blockquote {
@@ -327,4 +328,42 @@ body {
   -webkit-user-select: text !important;
   -moz-user-select: text !important;
   -ms-user-select: text !important;
+}
+
+
+/* Dark mode book content override */
+.dark-book-content,
+.dark-book-content * {
+  color: #e5e7eb !important; /* Tailwind gray-200 */
+}
+
+/* Book spread and animation height matching */
+.book-spread {
+  display: flex;
+  gap: 20px;
+  align-items: stretch !important; /* Ensures both pages have equal height */
+}
+
+.book-spread-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  gap: 20px;
+  align-items: stretch !important; /* Ensures animation pages have equal height */
+  z-index: 0;
+}
+
+/* Ensure pages stretch to match tallest content */
+.book-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.book-page .page-inner {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }

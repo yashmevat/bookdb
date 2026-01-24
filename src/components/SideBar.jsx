@@ -5,6 +5,13 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 
+// Role constants
+const ROLES = {
+  SUPERADMIN: 1,
+  AUTHOR: 2,
+  USER: 3
+};
+
 export default function Sidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
@@ -16,7 +23,7 @@ export default function Sidebar() {
     const checkMobile = () => {
       setIsMobile(window.innerWidth < 1024);
       if (window.innerWidth >= 1024) {
-        setIsOpen(false); // Auto-close on desktop
+        setIsOpen(false);
       }
     };
 
@@ -64,10 +71,25 @@ export default function Sidebar() {
     { href: '/author/books', label: '📖 My Books', icon: '📖' }
   ];
 
-  const links = user.role === 'superadmin' ? superadminLinks : authorLinks;
+  // Use role_id instead of role
+  const links = user.role_id === ROLES.SUPERADMIN ? superadminLinks : authorLinks;
 
   const closeSidebar = () => {
     if (isMobile) setIsOpen(false);
+  };
+
+  // Get panel title based on role_id
+  const getPanelTitle = () => {
+    switch(user.role_id) {
+      case ROLES.SUPERADMIN:
+        return 'Admin Panel';
+      case ROLES.AUTHOR:
+        return 'Author Panel';
+      case ROLES.USER:
+        return 'User Panel';
+      default:
+        return 'Dashboard';
+    }
   };
 
   return (
@@ -133,7 +155,7 @@ export default function Sidebar() {
         <div className="mb-8 pt-12 lg:pt-0">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-              {user.role === 'superadmin' ? 'Admin Panel' : 'Author Panel'}
+              {getPanelTitle()}
             </h2>
           </div>
           <p className="text-sm text-gray-400">
@@ -184,7 +206,9 @@ export default function Sidebar() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-semibold truncate">{user.username}</p>
-              <p className="text-xs text-gray-400 capitalize">{user.role}</p>
+              <p className="text-xs text-gray-400 capitalize">
+                {user.role_name || 'User'}
+              </p>
             </div>
           </div>
         </div>

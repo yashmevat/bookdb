@@ -22,20 +22,79 @@ export default function BookReaderPage() {
   const [dragStartX, setDragStartX] = useState(0);
   const [dragCurrentX, setDragCurrentX] = useState(0);
   const [canDrag, setCanDrag] = useState(false);
-  const [bookScale, setBookScale] = useState(0.7);
+  const [fontSize, setFontSize] = useState(100);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1920);
   const bookContainerRef = useRef(null);
-
+  
   // Speech synthesis states
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const speechRef = useRef(null);
   const utteranceRef = useRef(null);
-
+  
   // A4 EXACT dimensions at 96 DPI
   const A4_WIDTH = 820;
   const A4_HEIGHT = 1300;
+  const [maxPageHeight, setMaxPageHeight] = useState(A4_HEIGHT);
+  
+  // Update CSS custom property for font scaling
+  useEffect(() => {
+    document.documentElement.style.setProperty('--font-scale', fontSize / 100);
+  }, [fontSize]);
+
+  // Synchronize page heights - calculate max height and apply to all pages
+  useEffect(() => {
+    if (!bookOpened) return;
+
+    const syncPageHeights = () => {
+      // Wait for render
+      requestAnimationFrame(() => {
+        const allPageElements = document.querySelectorAll('.book-page');
+        
+        if (allPageElements.length === 0) return;
+
+        // First pass: set all to auto to get natural heights
+        allPageElements.forEach(pageEl => {
+          pageEl.style.height = 'auto';
+        });
+
+        // Force reflow
+        void document.body.offsetHeight;
+
+        let maxHeight = A4_HEIGHT;
+
+        // Second pass: measure all natural heights
+        allPageElements.forEach(pageEl => {
+          const pageHeight = pageEl.scrollHeight;
+          if (pageHeight > maxHeight) {
+            maxHeight = pageHeight;
+          }
+        });
+
+        // Round up to avoid fractional pixels
+        maxHeight = Math.ceil(maxHeight);
+
+        // Update state
+        setMaxPageHeight(maxHeight);
+
+        // Third pass: apply the max height to all pages immediately
+        allPageElements.forEach(pageEl => {
+          pageEl.style.height = `${maxHeight}px`;
+        });
+      });
+    };
+
+    // Run sync multiple times to ensure it catches everything
+    syncPageHeights();
+    const timer1 = setTimeout(syncPageHeights, 100);
+    const timer2 = setTimeout(syncPageHeights, 300);
+    
+    return () => {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+    };
+  }, [fontSize, currentPageIndex, bookOpened]);
 
   // Check if mobile/tablet
   useEffect(() => {
@@ -387,18 +446,7 @@ const prevPage = () => {
     setDragCurrentX(0);
   };
 
-  // Calculate responsive base scale based on window width
-  const getResponsiveScale = () => {
-    if (windowWidth <= 400) return 0.42;
-    if (windowWidth <= 480) return 0.48;
-    if (windowWidth <= 600) return 0.55;
-    if (windowWidth <= 768) return 0.65;
-    if (windowWidth <= 850) return 0.75;
-    if (windowWidth <= 1024) return 0.9;
-    if (windowWidth <= 1400) return 0.7;
-    if (windowWidth <= 1700) return 0.85;
-    return 1; // Default scale for larger screens
-  };
+
 
   const handleTouchStart = (e) => {
     if (!bookOpened) return;
@@ -470,12 +518,40 @@ const prevPage = () => {
 
         /* Book Container with Responsive Scaling */
         .book-spread-container {
-  position: relative;
-  perspective: 2000px;
-  transform-style: preserve-3d;
-  transform: scale(0.7); /* scale property ke bajaye transform use karo */
-  transform-origin: center top; /* Gap ko remove karne ke liye */
-}
+          position: relative;
+          perspective: 2000px;
+          transform-style: preserve-3d;
+          margin: 0 auto;
+        }
+
+        /* Desktop - Two page spread with scaling */
+        @media (min-width: 1024px) {
+          .book-spread-container {
+            transform: scale(0.7);
+            transform-origin: center top;
+            max-width: 100%;
+          }
+        }
+
+        /* Tablet - Single page centered */
+        @media (min-width: 768px) and (max-width: 1023px) {
+          .book-spread-container {
+            transform: scale(0.8);
+            transform-origin: center top;
+            max-width: ${A4_WIDTH}px;
+            padding: 0 20px;
+          }
+        }
+
+        /* Mobile - Single page smaller scale */
+        @media (max-width: 767px) {
+          .book-spread-container {
+            transform: scale(0.6);
+            transform-origin: center top;
+            max-width: ${A4_WIDTH}px;
+            padding: 0 10px;
+          }
+        }
 
 
         .book-page {
@@ -486,6 +562,16 @@ const prevPage = () => {
             inset 0 0 0 1px rgba(0, 0, 0, 0.1);
           position: relative;
           overflow: hidden;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .page-inner {
+          width: 100%;
+          height: 100%;
+          min-height: 100%;
+          display: flex;
+          flex-direction: column;
         }
 
         .book-spread {
@@ -493,6 +579,7 @@ const prevPage = () => {
           gap: 0;
           position: relative;
           z-index: 2;
+          align-items: stretch;
         }
 
         .book-spread-background {
@@ -502,6 +589,7 @@ const prevPage = () => {
           top: 0;
           left: 0;
           z-index: 1;
+          align-items: stretch;
         }
 
         .page-flip-animation {
@@ -587,14 +675,21 @@ const prevPage = () => {
           }
         }
 
-        /* Mobile single page */
+        /* Mobile single page - Hide right page on mobile/tablet */
         @media (max-width: 1023px) {
           .book-spread {
             display: block;
+            margin: 0 auto;
+            max-width: ${A4_WIDTH}px;
           }
           
           .page-right {
-            display: none;
+            display: none !important;
+          }
+
+          .book-spread-background {
+            max-width: ${A4_WIDTH}px;
+            margin: 0 auto;
           }
         }
 
@@ -814,7 +909,7 @@ const prevPage = () => {
             gap: 4px;
           }
 
-          .navbar-title {
+          .navbar-title { 
             font-size: 14px !important;
           }
 
@@ -909,22 +1004,22 @@ const prevPage = () => {
       <div className="flex items-center gap-1 sm:gap-3">
         {bookOpened && (
           <>
-            {/* Scale Range Input */}
+            {/* Font Size Range Input */}
             <div className="scale-slider-container flex items-center gap-2 mr-2">
-              <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Scale:</span>
+              <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Font:</span>
               <input
                 type="range"
-                min="0.5"
-                max="1.5"
-                step="0.1"
-                value={bookScale}
-                onChange={(e) => setBookScale(parseFloat(e.target.value))}
+                min="50"
+                max="200"
+                step="10"
+                value={fontSize}
+                onChange={(e) => setFontSize(parseInt(e.target.value))}
                 className="w-32 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                 style={{
-                  background: `linear-gradient(to right, #3B82F6 0%, #3B82F6 ${((bookScale - 0.5) / 1) * 100}%, #E5E7EB ${((bookScale - 0.5) / 1) * 100}%, #E5E7EB 100%)`
+                  background: `linear-gradient(to right, #10B981 0%, #10B981 ${((fontSize - 50) / 150) * 100}%, #E5E7EB ${((fontSize - 50) / 150) * 100}%, #E5E7EB 100%)`
                 }}
               />
-              <span className={`text-xs w-8 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{Math.round(bookScale * 100)}%</span>
+              <span className={`text-xs w-8 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{fontSize}%</span>
             </div>
             
             <div className={`h-6 w-px ${isDarkMode ? 'bg-gray-600' : 'bg-gray-300'}`}></div>
@@ -1015,7 +1110,6 @@ const prevPage = () => {
             <div
               ref={bookContainerRef}
               className="book-spread-container"
-              style={{ transform: `scale(${getResponsiveScale() * bookScale})`, transformOrigin: 'center top' }}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
@@ -1027,21 +1121,25 @@ const prevPage = () => {
               <div className="book-spread-background">
                 {isFlipping && flipDirection === 'next' && nextLeftPage && (
                   <>
-                    <div className="book-page" style={{ width: `${A4_WIDTH}px`, height: `${A4_HEIGHT}px` }}>
+                    <div className="book-page" style={{ width: `${A4_WIDTH}px`, height: `${maxPageHeight}px` }}>
                       <PageContent
                         page={nextLeftPage}
                         pageNumber={currentPageIndex + (isMobile ? 2 : 3)}
                         onChapterClick={goToPage}
                         book={book}
+                        isDarkMode={isDarkMode}
+                        setIsDarkMode={setIsDarkMode}
                       />
                     </div>
                     {nextRightPage && !isMobile && (
-                      <div className="book-page" style={{ width: `${A4_WIDTH}px`, height: `${A4_HEIGHT}px` }}>
+                      <div className="book-page" style={{ width: `${A4_WIDTH}px`, height: `${maxPageHeight}px` }}>
                         <PageContent
                           page={nextRightPage}
                           pageNumber={currentPageIndex + 4}
                           onChapterClick={goToPage}
                           book={book}
+                          isDarkMode={isDarkMode}
+                          setIsDarkMode={setIsDarkMode}
                         />
                       </div>
                     )}
@@ -1050,21 +1148,27 @@ const prevPage = () => {
 
                 {isFlipping && flipDirection === 'prev' && prevLeftPage && (
                   <>
-                    <div className="book-page" style={{ width: `${A4_WIDTH}px`, height: `${A4_HEIGHT}px` }}>
+                    <div className="book-page" style={{ width: `${A4_WIDTH}px`, height: `${maxPageHeight}px` }}>
                       <PageContent
                         page={prevLeftPage}
                         pageNumber={currentPageIndex - (isMobile ? 0 : 1)}
                         onChapterClick={goToPage}
                         book={book}
+                        
+                        isDarkMode={isDarkMode}
+                        setIsDarkMode={setIsDarkMode}
                       />
                     </div>
                     {prevRightPage && !isMobile && (
-                      <div className="book-page" style={{ width: `${A4_WIDTH}px`, height: `${A4_HEIGHT}px` }}>
+                      <div className="book-page" style={{ width: `${A4_WIDTH}px`, height: `${maxPageHeight}px` }}>
                         <PageContent
                           page={prevRightPage}
                           pageNumber={currentPageIndex}
                           onChapterClick={goToPage}
                           book={book}
+                          
+                        isDarkMode={isDarkMode}
+                        setIsDarkMode={setIsDarkMode}
                         />
                       </div>
                     )}
@@ -1078,7 +1182,7 @@ const prevPage = () => {
                     className="book-page page-left page-flip-animation"
                     style={{
                       width: `${A4_WIDTH}px`,
-                      height: `${A4_HEIGHT}px`,
+                      height: `${maxPageHeight}px`,
                       transform: isDragging && canDrag && dragOffset > 0
                         ? `rotateY(${Math.min(dragOffset / 5, 30)}deg)`
                         : 'rotateY(0deg)'
@@ -1089,6 +1193,9 @@ const prevPage = () => {
                       pageNumber={leftPageIndex + 1}
                       onChapterClick={goToPage}
                       book={book}
+                      
+                        isDarkMode={isDarkMode}
+                        setIsDarkMode={setIsDarkMode}
                     />
                   </div>
                 )}
@@ -1098,7 +1205,7 @@ const prevPage = () => {
                     className="book-page page-right page-flip-animation"
                     style={{
                       width: `${A4_WIDTH}px`,
-                      height: `${A4_HEIGHT}px`,
+                      height: `${maxPageHeight}px`,
                       transform: isDragging && canDrag && dragOffset < 0
                         ? `rotateY(${Math.max(dragOffset / 5, -30)}deg)`
                         : 'rotateY(0deg)'
@@ -1109,6 +1216,9 @@ const prevPage = () => {
                       pageNumber={rightPageIndex + 1}
                       onChapterClick={goToPage}
                       book={book}
+                      
+                        isDarkMode={isDarkMode}
+                        setIsDarkMode={setIsDarkMode}
                     />
                   </div>
                 )}
@@ -1131,7 +1241,7 @@ const prevPage = () => {
 }
 
 // Page Content Component (EXACT SAME AS YOUR ORIGINAL)
-function PageContent({ page, pageNumber, onChapterClick, book }) {
+function PageContent({ page, pageNumber, onChapterClick, book ,isDarkMode, setIsDarkMode}) {
   if (page.type === 'cover') {
     return <CoverPage book={book} />;
   }
@@ -1145,10 +1255,10 @@ function PageContent({ page, pageNumber, onChapterClick, book }) {
     );
   }
   if (page.type === 'chapter-title') {
-    return <ChapterTitlePage chapter={page.content} pageNumber={pageNumber} />;
+    return <ChapterTitlePage chapter={page.content} pageNumber={pageNumber} isDarkMode={isDarkMode} setIsDarkMode={setIsDarkMode}/>;
   }
   if (page.type === 'content') {
-    return <ContentPage page={page.content} chapterTitle={page.chapterTitle} pageNumber={pageNumber} />;
+    return <ContentPage page={page.content} chapterTitle={page.chapterTitle} pageNumber={pageNumber} isDarkMode={isDarkMode} setIsDarkMode={setIsDarkMode} />;
   }
   if (page.type === 'back-cover') {
     return <BackCoverPage book={book} />;
@@ -1158,15 +1268,16 @@ function PageContent({ page, pageNumber, onChapterClick, book }) {
 
 function CoverPage({ book }) {
   return (
-    <div className="page-inner bg-gradient-to-br from-blue-800 via-blue-700 to-blue-900 text-white relative overflow-hidden">
-      {/* Top Logo */}
-      <div className="absolute top-8 left-0 right-0 flex justify-center">
+    <div className="page-inner bg-gradient-to-br from-blue-800 via-blue-700 to-blue-900 text-white">
+      {/* Header */}
+      <div className="flex-shrink-0 pt-8 text-center" style={{ height: '80px' }}>
         <div className="text-2xl font-bold">
           <span className="text-green-400">PLAB</span>
           <span className="text-blue-400">MEDI</span>
         </div>
       </div>
 
+      {/* Content Area */}
       <div className="flex-1 flex flex-col justify-center items-center p-12">
         <div className="text-center space-y-6">
           {/* Book Icon */}
@@ -1198,8 +1309,8 @@ function CoverPage({ book }) {
         </div>
       </div>
 
-      {/* Bottom Text */}
-      <div className="absolute bottom-8 left-0 right-0 text-center space-y-2">
+      {/* Footer */}
+      <div className="flex-shrink-0 text-center pb-8" style={{ height: '80px' }}>
         <p className="text-sm text-blue-200">Tap to open</p>
         <p className="text-xs text-blue-300">{book?.topic_name || '2025 Edition'}</p>
       </div>
@@ -1211,12 +1322,16 @@ function CoverPage({ book }) {
 function TableOfContents({ chapters, chapterPageMap, onChapterClick }) {
   return (
     <div className="page-inner bg-white">
-      <div className="flex-1 flex flex-col p-10">
-        <h2 className="text-3xl font-bold text-gray-900 mb-6 select-text">
+      {/* Header */}
+      <div className="flex-shrink-0 p-10 pb-4">
+        <h2 className="text-3xl font-bold text-gray-900 select-text">
           Course Contents
         </h2>
-        
-        <div className="flex-1 space-y-0 overflow-y-auto">
+      </div>
+      
+      {/* Content Area */}
+      <div className="flex-1 px-10 pb-4 overflow-y-auto">
+        <div className="space-y-0">
           {chapters.map((chapter, index) => {
             const pageIndex = chapterPageMap[chapter.id];
             return (
@@ -1248,41 +1363,70 @@ function TableOfContents({ chapters, chapterPageMap, onChapterClick }) {
           })}
         </div>
       </div>
+
+      {/* Footer */}
+      <div className="flex-shrink-0 h-12"></div>
     </div>
   );
 }
 
 
-function ChapterTitlePage({ chapter, pageNumber, chapterIndex }) {
+function ChapterTitlePage({ chapter, pageNumber, chapterIndex, isDarkMode }) {
   return (
-    <div className="page-inner bg-white relative">
+    <div
+      className={`page-inner relative ${
+        isDarkMode ? 'bg-[#2A2A2A]' : 'bg-white'
+      }`}
+    >
       <div className="flex flex-col justify-center items-center p-12 h-full">
         <div className="text-center space-y-6 max-w-2xl">
-          {/* Chapter Number Label */}
-          <p className="text-sm text-gray-600 uppercase tracking-wide select-text">
+          {/* Chapter Number */}
+          <p
+            className={`text-sm uppercase tracking-wide select-text ${
+              isDarkMode ? 'text-gray-400' : 'text-gray-600'
+            }`}
+          >
             CHAPTER {chapterIndex || 1}
           </p>
 
           {/* Chapter Title */}
-          <h2 className="text-4xl font-bold leading-tight text-gray-900 select-text">
+          <h2
+            className={`text-4xl font-bold leading-tight select-text ${
+              isDarkMode ? 'text-gray-100' : 'text-gray-900'
+            }`}
+          >
             {chapter.title}
           </h2>
 
-          {/* Blue Underline */}
-          <div className="w-16 h-1 bg-blue-600 mx-auto"></div>
+          {/* Underline */}
+          <div
+            className={`w-16 h-1 mx-auto ${
+              isDarkMode ? 'bg-blue-400' : 'bg-blue-600'
+            }`}
+          ></div>
 
-          {/* Chapter Description - Static for now */}
-          <p className="text-base text-gray-700 leading-relaxed px-8 select-text mt-8">
-            This chapter covers essential endocrinology concepts including diabetes mellitus, 
-            thyroid disorders, adrenal pathology, and metabolic syndromes. Key topics include 
-            pathophysiology, clinical manifestations, diagnostic approaches, and evidence-based 
+          {/* Description */}
+          <p
+            className={`text-base leading-relaxed px-8 select-text mt-8 ${
+              isDarkMode ? 'text-gray-300' : 'text-gray-700'
+            }`}
+          >
+            This chapter covers essential endocrinology concepts including diabetes mellitus,
+            thyroid disorders, adrenal pathology, and metabolic syndromes. Key topics include
+            pathophysiology, clinical manifestations, diagnostic approaches, and evidence-based
             management strategies.
           </p>
         </div>
 
-        {/* Page Number at Bottom */}
+        {/* Page Number */}
         <div className="absolute bottom-8 left-0 right-0 text-center">
-          <span className="text-sm text-gray-500">{pageNumber}</span>
+          <span
+            className={`text-sm ${
+              isDarkMode ? 'text-gray-500' : 'text-gray-500'
+            }`}
+          >
+            {pageNumber}
+          </span>
         </div>
       </div>
     </div>
@@ -1290,56 +1434,88 @@ function ChapterTitlePage({ chapter, pageNumber, chapterIndex }) {
 }
 
 
-function ContentPage({ page, chapterTitle, pageNumber }) {
-  // A4 dimensions
+
+function ContentPage({ page, chapterTitle, pageNumber, isDarkMode }) {
+  // Header and footer heights
   const HEADER_HEIGHT = 60;
   const FOOTER_HEIGHT = 50;
-  const A4_HEIGHT = 1300;
-  const CONTENT_HEIGHT = A4_HEIGHT - HEADER_HEIGHT - FOOTER_HEIGHT; // 1003px
 
   return (
-    <div className="page-inner bg-gradient-to-br from-white to-gray-50">
-      {/* Header - Fixed 60px */}
+    <div
+      className={`page-inner bg-gradient-to-br ${
+        isDarkMode ? 'bg-[#2A2A2A] text-gray-200' : 'bg-[#F4F1EA] text-gray-800'
+      }`}
+      style={{ minHeight: '1300px', display: 'flex', flexDirection: 'column' }}
+    >
+      {/* Header */}
       <div
-        className="flex-shrink-0 pb-4 border-b-2 border-gray-300 px-10 pt-4"
+        className={`flex-shrink-0 px-10 pt-4 pb-4 border-b ${
+          isDarkMode
+            ? 'bg-[#2A2A2A] border-gray-700'
+            : 'bg-white border-gray-300'
+        }`}
         style={{ height: `${HEADER_HEIGHT}px` }}
       >
-        <p className="text-xs text-gray-500 uppercase tracking-wide select-text truncate">
+        <p
+          className={`text-xs uppercase tracking-wide truncate select-text ${
+            isDarkMode ? 'text-gray-400' : 'text-gray-500'
+          }`}
+        >
           {chapterTitle}
         </p>
       </div>
 
-      {/* Content Area - Calculated exact height */}
+      {/* Content Area */}
       <div
-        className="px-10 py-8 overflow-y-auto"
-        style={{
-          height: `${CONTENT_HEIGHT}px`, // Exact height instead of flex-1
-          
-        }}
+        className={`px-10 py-8 flex-1 ${
+          isDarkMode ? 'bg-[#2A2A2A]' : 'bg-white'
+        }`}
       >
-        <div
-          className="book-content-text select-text"
-          dangerouslySetInnerHTML={{
-            __html: page.content || '<p class="text-gray-400 italic text-center mt-20">No content available</p>'
-          }}
-        />
+      <div
+  className={`book-content-text select-text ${
+    isDarkMode ? 'dark-book-content' : ''
+  }`}
+  dangerouslySetInnerHTML={{
+    __html:
+      page.content ||
+      `<p class="${
+        isDarkMode ? 'text-gray-500' : 'text-gray-400'
+      } italic text-center mt-20">No content available</p>`,
+  }}
+/>
+
       </div>
 
-      {/* Footer - Fixed 60px */}
+      {/* Footer */}
       <div
-        className="flex-shrink-0 pt-4 text-center border-t border-gray-200 pb-4"
+        className={`flex-shrink-0 pt-4 pb-4 text-center border-t ${
+          isDarkMode
+            ? 'bg-[#2A2A2A] border-gray-700'
+            : 'bg-white border-gray-200'
+        }`}
         style={{ height: `${FOOTER_HEIGHT}px` }}
       >
-        <span className="text-sm text-gray-400">{pageNumber}</span>
+        <span
+          className={`text-sm ${
+            isDarkMode ? 'text-gray-500' : 'text-gray-400'
+          }`}
+        >
+          {pageNumber}
+        </span>
       </div>
     </div>
   );
 }
+
 
 
 function BackCoverPage({ book }) {
   return (
     <div className="page-inner bg-gradient-to-br from-gray-800 to-gray-900 text-white">
+      {/* Header */}
+      <div className="flex-shrink-0 h-20"></div>
+
+      {/* Content Area */}
       <div className="flex-1 flex flex-col justify-center items-center p-12">
         <div className="text-center space-y-8">
           <div className="text-8xl mb-6">✨</div>
@@ -1353,6 +1529,9 @@ function BackCoverPage({ book }) {
           </div>
         </div>
       </div>
+
+      {/* Footer */}
+      <div className="flex-shrink-0 h-20"></div>
     </div>
   );
 }

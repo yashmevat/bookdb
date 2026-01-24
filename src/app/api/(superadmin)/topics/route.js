@@ -6,7 +6,7 @@ import { getUser } from '@/lib/auth';
 export async function GET() {
   try {
     const user = await getUser();
-    if (!user || user.role !== 'superadmin') {
+    if (!user || user.role_id !== 1) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -22,7 +22,7 @@ export async function GET() {
 export async function POST(request) {
   try {
     const user = await getUser();
-    if (!user || user.role !== 'superadmin') {
+    if (!user || user.role_id !== 1){
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -45,7 +45,7 @@ export async function POST(request) {
 export async function DELETE(request) {
   try {
     const user = await getUser();
-    if (!user || user.role !== 'superadmin') {
+    if (!user || user.role_id !== 1)  {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 

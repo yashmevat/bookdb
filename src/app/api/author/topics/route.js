@@ -8,7 +8,7 @@ export async function GET(request) {
   try {
     const user = await getUser();
     
-    if (!user || user.role !== 'author') {
+    if (!user || user.role_id !== 2) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -26,7 +26,7 @@ export async function GET(request) {
     const [subjectCheck] = await pool.query(
       `SELECT aus.id FROM author_subjects aus 
        WHERE aus.author_id = ? AND aus.subject_id = ?`,
-      [user.userId, subject_id]
+      [user.id, subject_id]
     );
 
     if (subjectCheck.length === 0) {

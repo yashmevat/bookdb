@@ -67,7 +67,7 @@ export default function Home() {
             <div className="flex items-center justify-between">
               <div>
                 <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">
-                  📚 Digital Library
+                  PlabCoach Library
                 </h1>
                 <p className="text-gray-600 text-sm sm:text-base mt-1">Explore our collection</p>
               </div>

@@ -25,9 +25,9 @@ export default function LoginPage() {
         await checkAuth();
         
         // Redirect based on role
-        if (result.user.role === 'superadmin') {
+        if (result.user.role_id === 1) {
           router.push('/dashboard/authors');
-        } else if (result.user.role === 'author') {
+        } else if (result.user.role_id === 2) {
           router.push('/author/books');
         }
         

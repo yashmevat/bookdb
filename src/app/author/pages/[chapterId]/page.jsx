@@ -23,6 +23,7 @@ export default function PagesPage() {
   const quillRefs = useRef({});
   const initializedEditors = useRef(new Set()); // Track initialized editors
   const reflowTimeout = useRef(null); // Debounce reflow
+  const topRef = useRef(null); // Ref for scrolling to top
 
 
   // A4 EXACT DIMENSIONS (96 DPI standard)
@@ -612,7 +613,6 @@ export default function PagesPage() {
       return;
     }
 
-
     Object.keys(quillRefs.current).forEach(key => {
       const quill = quillRefs.current[key];
       if (quill && quill.container) {
@@ -636,10 +636,14 @@ export default function PagesPage() {
     };
     
     setLivePages([newPage]);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
 
 
     setTimeout(() => {
+      // Scroll to top after state update
+      if (topRef.current) {
+        topRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      
       const container = document.getElementById('editor-0');
       
       if (!container || !window.Quill) return;
@@ -898,7 +902,7 @@ export default function PagesPage() {
 
 
       <div className="min-h-screen bg-gray-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div ref={topRef} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           
           {/* Breadcrumb */}
           <div className="mb-8">

@@ -8,7 +8,7 @@ export async function GET() {
   try {
     const user = await getUser();
     
-    if (!user || user.role !== 'author') {
+    if (!user || user.role_id !== 2) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -19,7 +19,7 @@ export async function GET() {
        LEFT JOIN topics t ON b.topic_id = t.id 
        WHERE b.author_id = ?
        ORDER BY b.created_at DESC`,
-      [user.userId]
+      [user.id]
     );
     
     return NextResponse.json({ success: true, data: rows });
@@ -33,7 +33,7 @@ export async function POST(request) {
   try {
     const user = await getUser();
     
-    if (!user || user.role !== 'author') {
+    if (!user || user.role_id !== 2) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -51,7 +51,7 @@ export async function POST(request) {
     const [subjectCheck] = await pool.query(
       `SELECT aus.id FROM author_subjects aus 
        WHERE aus.author_id = ? AND aus.subject_id = ?`,
-      [user.userId, subject_id]
+      [user.id, subject_id]
     );
 
     if (subjectCheck.length === 0) {
@@ -76,7 +76,7 @@ export async function POST(request) {
 
     const [result] = await pool.query(
       'INSERT INTO books (title, author_id, subject_id, topic_id) VALUES (?, ?, ?, ?)',
-      [title, user.userId, subject_id, topic_id]
+      [title, user.id, subject_id, topic_id]
     );
     
     return NextResponse.json({ 
@@ -93,7 +93,7 @@ export async function PUT(request) {
   try {
     const user = await getUser();
     
-    if (!user || user.role !== 'author') {
+    if (!user || user.role_id !== 2) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -109,7 +109,7 @@ export async function PUT(request) {
     // Verify book belongs to author
     const [bookCheck] = await pool.query(
       'SELECT id FROM books WHERE id = ? AND author_id = ?',
-      [id, user.userId]
+      [id, user.id]
     );
 
     if (bookCheck.length === 0) {
@@ -123,7 +123,7 @@ export async function PUT(request) {
     const [subjectCheck] = await pool.query(
       `SELECT aus.id FROM author_subjects aus 
        WHERE aus.author_id = ? AND aus.subject_id = ?`,
-      [user.userId, subject_id]
+      [user.id, subject_id]
     );
 
     if (subjectCheck.length === 0) {
@@ -148,7 +148,7 @@ export async function PUT(request) {
     
     await pool.query(
       'UPDATE books SET title = ?, subject_id = ?, topic_id = ? WHERE id = ? AND author_id = ?',
-      [title, subject_id, topic_id, id, user.userId]
+      [title, subject_id, topic_id, id, user.id]
     );
     
     return NextResponse.json({ success: true });
@@ -162,7 +162,7 @@ export async function DELETE(request) {
   try {
     const user = await getUser();
     
-    if (!user || user.role !== 'author') {
+    if (!user || user.role_id !== 2) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -179,7 +179,7 @@ export async function DELETE(request) {
     // Verify book belongs to author
     const [bookCheck] = await pool.query(
       'SELECT id FROM books WHERE id = ? AND author_id = ?',
-      [id, user.userId]
+      [id, user.id]
     );
 
     if (bookCheck.length === 0) {
@@ -191,7 +191,7 @@ export async function DELETE(request) {
 
     await pool.query(
       'DELETE FROM books WHERE id = ? AND author_id = ?', 
-      [id, user.userId]
+      [id, user.id]
     );
     
     return NextResponse.json({ success: true });

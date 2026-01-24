@@ -7,7 +7,7 @@ export async function GET(request) {
   try {
     const user = await getUser();
     
-    if (!user || user.role !== 'author') {
+    if (!user || user.role_id !== 2) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -24,7 +24,7 @@ export async function GET(request) {
     // Verify chapter belongs to author
     const [chapters] = await pool.query(
       'SELECT id FROM chapters WHERE id = ? AND author_id = ?',
-      [chapter_id, user.userId]
+      [chapter_id, user.id]
     );
 
     if (chapters.length === 0) {
@@ -55,7 +55,7 @@ export async function POST(request) {
   try {
     const user = await getUser();
     
-    if (!user || user.role !== 'author') {
+    if (!user || user.role_id !== 2) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -71,7 +71,7 @@ export async function POST(request) {
     // Verify chapter belongs to author
     const [chapters] = await pool.query(
       'SELECT id FROM chapters WHERE id = ? AND author_id = ?',
-      [chapter_id, user.userId]
+      [chapter_id, user.id]
     );
 
     if (chapters.length === 0) {
@@ -101,7 +101,7 @@ export async function PUT(request) {
   try {
     const user = await getUser();
     
-    if (!user || user.role !== 'author') {
+    if (!user || user.role_id !== 2) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -119,7 +119,7 @@ export async function PUT(request) {
       `SELECT p.id FROM pages p
        INNER JOIN chapters c ON p.chapter_id = c.id
        WHERE p.id = ? AND c.author_id = ?`,
-      [id, user.userId]
+      [id, user.id]
     );
 
     if (pages.length === 0) {
@@ -146,7 +146,7 @@ export async function DELETE(request) {
   try {
     const user = await getUser();
     
-    if (!user || user.role !== 'author') {
+    if (!user || user.role_id !== 2) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -165,7 +165,7 @@ export async function DELETE(request) {
       `SELECT p.id FROM pages p
        INNER JOIN chapters c ON p.chapter_id = c.id
        WHERE p.id = ? AND c.author_id = ?`,
-      [id, user.userId]
+      [id, user.id]
     );
 
     if (pages.length === 0) {
