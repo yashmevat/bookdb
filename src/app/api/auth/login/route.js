@@ -45,16 +45,16 @@ export async function POST(request) {
     let redirectUrl;
     switch(user.role_id) {
       case ROLE_SUPERADMIN:
-        redirectUrl = '/dashboard/superadmin';
+        redirectUrl = '/dashboard/authors';
         break;
       case ROLE_AUTHOR:
-        redirectUrl = '/dashboard/author';
+        redirectUrl = '/author/books';
         break;
       case ROLE_USER:
-        redirectUrl = '/dashboard/user';
+        redirectUrl = '/';
         break;
       default:
-        redirectUrl = '/dashboard';
+        redirectUrl = '/';
     }
 
     const response = NextResponse.json({

@@ -2,9 +2,11 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/context/AuthContext';
 
 export default function Home() {
   const router = useRouter();
+  const { user, loading: authLoading, logout } = useAuth();
   const [books, setBooks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -29,6 +31,10 @@ export default function Home() {
 
   const handleBookClick = (bookId) => {
     router.push(`/book/${bookId}`);
+  };
+
+  const handleLogout = async () => {
+    await logout();
   };
 
   const filteredBooks = books.filter(book =>
@@ -69,21 +75,57 @@ export default function Home() {
                 <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">
                   PlabCoach Library
                 </h1>
-                <p className="text-gray-600 text-sm sm:text-base mt-1">Explore our collection</p>
+                <p className="text-gray-600 text-sm sm:text-base mt-1">
+                  {user ? `Welcome, ${user.username}!` : 'Explore our collection'}
+                </p>
               </div>
-              <button
-                onClick={() => router.push('/login')}
-                className="sm:hidden px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition font-medium text-sm shadow-sm"
-              >
-                Login
-              </button>
+              
+              {/* Mobile Auth Button */}
+              {!authLoading && (
+                user ? (
+                  <button
+                    onClick={handleLogout}
+                    className="sm:hidden px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition font-medium text-sm shadow-sm"
+                  >
+                    Logout
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => router.push('/login')}
+                    className="sm:hidden px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition font-medium text-sm shadow-sm"
+                  >
+                    Login
+                  </button>
+                )
+              )}
             </div>
-            <button
-              onClick={() => router.push('/login')}
-              className="hidden sm:block px-6 py-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition font-medium shadow-md hover:shadow-lg transform hover:scale-105"
-            >
-              Login / Sign Up
-            </button>
+            
+            {/* Desktop Auth Button */}
+            {!authLoading && (
+              user ? (
+                <div className="hidden sm:flex items-center gap-4">
+                  <div className="text-sm text-gray-600">
+                    <span className="font-medium">{user.email}</span>
+                    <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">
+                      {user.role_name || 'User'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="px-6 py-2.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition font-medium shadow-md hover:shadow-lg transform hover:scale-105"
+                  >
+                    Logout
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => router.push('/login')}
+                  className="hidden sm:block px-6 py-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition font-medium shadow-md hover:shadow-lg transform hover:scale-105"
+                >
+                  Login / Sign Up
+                </button>
+              )
+            )}
           </div>
         </div>
       </header>

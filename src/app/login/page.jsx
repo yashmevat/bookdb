@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
+import Link from 'next/link';
 
 export default function LoginPage() {
   const [formData, setFormData] = useState({ email: '', password: '' });
@@ -29,6 +30,8 @@ export default function LoginPage() {
           router.push('/dashboard/authors');
         } else if (result.user.role_id === 2) {
           router.push('/author/books');
+        }else{
+          router.push('/');
         }
         
         // Force router refresh to update layouts
@@ -91,6 +94,15 @@ export default function LoginPage() {
             {loading ? 'Logging in...' : 'Login'}
           </button>
         </form>
+
+         <div className="text-center mt-4">
+            <p className="text-gray-600">
+              Don't have an account?{' '}
+              <Link href="/register" className="text-blue-600 hover:underline font-semibold">
+                Register here
+              </Link>
+            </p>
+          </div>
       </div>
     </div>
   );

@@ -54,21 +54,21 @@ export async function POST(request) {
     }
 
     // Check if username already exists
-    const [existingUsername] = await pool.query(
-      'SELECT id FROM users WHERE username = ?',
-      [username]
-    );
+    // const [existingUsername] = await pool.query(
+    //   'SELECT id FROM users WHERE username = ?',
+    //   [username]
+    // );
 
-    if (existingUsername.length > 0) {
-      return NextResponse.json(
-        { success: false, error: 'Username already exists' },
-        { status: 400 }
-      );
-    }
+    // if (existingUsername.length > 0) {
+    //   return NextResponse.json(
+    //     { success: false, error: 'Username already exists' },
+    //     { status: 400 }
+    //   );
+    // }
 
     // Generate random password (12 characters)
     const randomPassword = generatePassword(12);
-    console.log('🔑 Generated password for', username, ':', randomPassword);
+    console.log('Generated password for', username, ':', randomPassword);
 
     // Hash the password
     const hashedPassword = await bcrypt.hash(randomPassword, 10);
@@ -79,14 +79,14 @@ export async function POST(request) {
       [username, email, hashedPassword, ROLE_AUTHOR]
     );
 
-    console.log('✅ Author created with ID:', result.insertId);
+    console.log('Author created with ID:', result.insertId);
 
     // Send welcome email with credentials
-    console.log('📧 Sending welcome email to:', email);
+    console.log('Sending welcome email to:', email);
     const emailResult = await sendWelcomeEmail(email, username, randomPassword);
 
     if (!emailResult.success) {
-      console.error('❌ Failed to send email:', emailResult.error);
+      console.error('Failed to send email:', emailResult.error);
       
       // Author is created but email failed
       return NextResponse.json({
@@ -104,7 +104,7 @@ export async function POST(request) {
       });
     }
 
-    console.log('✅ Email sent successfully');
+    console.log('Email sent successfully');
 
     // Success - email sent
     return NextResponse.json({
@@ -120,7 +120,7 @@ export async function POST(request) {
     });
 
   } catch (error) {
-    console.error('❌ Error in POST /api/authors:', error);
+    console.error('Error in POST /api/authors:', error);
     return NextResponse.json(
       { success: false, error: error.message },
       { status: 500 }
@@ -169,7 +169,7 @@ export async function DELETE(request) {
     });
 
   } catch (error) {
-    console.error('❌ Error in DELETE /api/authors:', error);
+    console.error('Error in DELETE /api/authors:', error);
     return NextResponse.json(
       { success: false, error: error.message },
       { status: 500 }
