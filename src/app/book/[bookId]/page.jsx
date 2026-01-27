@@ -846,46 +846,58 @@ export default function BookReaderPage() {
     perspective: 2000px;
     transform-style: preserve-3d;
     margin: 0 auto;
+    --scale-factor: 0.7;
+    --container-height: calc(${A4_HEIGHT}px * var(--scale-factor) + 100px);
   }
 
   /* Desktop - Two page spread with scaling */
   @media (min-width: 1024px) {
     .book-spread-container {
-      transform: scale(0.7);
+      --scale-factor: 0.7;
+      transform: scale(var(--scale-factor));
       transform-origin: center top;
       max-width: 100%;
+      height: var(--container-height);
     }
   }
 
   /* Tablet - Single page centered */
   @media (min-width: 768px) and (max-width: 1023px) {
     .book-spread-container {
-      transform: scale(0.8);
+      --scale-factor: 0.8;
+      transform: scale(var(--scale-factor));
       transform-origin: center top;
       max-width: ${A4_WIDTH}px;
       padding: 0 20px;
+      height: var(--container-height);
     }
   }
 
   /* Mobile - Single page smaller scale */
   @media (max-width: 767px) {
     .book-spread-container {
-      transform: scale(0.6);
+      --scale-factor: 0.6;
+      transform: scale(var(--scale-factor));
       transform-origin: center top;
       max-width: ${A4_WIDTH}px;
       padding: 0 10px;
+      height: var(--container-height);
     }
   }
 
   @media (max-width: 600px) {
     .book-spread-container {
-      transform: scale(0.55);
+      --scale-factor: 0.55;
+      transform: scale(var(--scale-factor));
+      height: var(--container-height);
     }
   }
 
   @media (max-width: 480px) {
     .book-spread-container {
-      transform: scale(0.48);
+      --scale-factor: 0.48;
+      transform: scale(var(--scale-factor));
+      height: var(--container-height);
     }
     
     .control-btn span {
@@ -899,7 +911,9 @@ export default function BookReaderPage() {
 
   @media (max-width: 400px) {
     .book-spread-container {
-      transform: scale(0.42);
+      --scale-factor: 0.42;
+      transform: scale(var(--scale-factor));
+      height: var(--container-height);
     }
   }
 
@@ -1598,7 +1612,13 @@ export default function BookReaderPage() {
                 Drag to Flip Pages
               </p>
 
-              {/* Highlights Section */}
+
+            </div>
+          )}
+
+          
+        </div>
+                      {/* Highlights Section */}
               {bookOpened && highlights.length > 0 && (
                 <div className={`highlights-section max-w-6xl mx-auto mt-6 mb-6 px-4 ${isDarkMode ? 'text-white' : 'text-black'}`}>
                   <div className="flex items-center justify-between mb-3">
@@ -1651,7 +1671,7 @@ export default function BookReaderPage() {
 
               {/* Bookmarks Section */}
               {bookOpened && bookmarks.length > 0 && (
-                <div className={`bookmarks-section max-w-6xl mx-auto mt-6 mb-8 px-4 ${isDarkMode ? 'text-white' : 'text-black'}`}>
+                <div className={`bookmarks-section max-w-6xl mx-auto mt-6 py-4 px-4 ${isDarkMode ? 'text-white' : 'text-black'}`}>
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-lg font-bold flex items-center gap-2">
                       <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
@@ -1694,9 +1714,6 @@ export default function BookReaderPage() {
                   </div>
                 </div>
               )}
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Bookmark Choice Modal (Desktop) */}
