@@ -7,11 +7,10 @@ export default function AuthorBooksPage() {
   const router = useRouter();
   const [books, setBooks] = useState([]);
   const [subjects, setSubjects] = useState([]);
-  const [topics, setTopics] = useState([]);
   const [formData, setFormData] = useState({ 
     title: '', 
-    subject_id: '', 
-    topic_id: '' 
+    subject_id: '',
+    topics: []
   });
   const [editMode, setEditMode] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -19,20 +18,12 @@ export default function AuthorBooksPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterSubject, setFilterSubject] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const [expandedBooks, setExpandedBooks] = useState({}); // Track which books are expanded
 
   useEffect(() => {
     fetchBooks();
     fetchSubjects();
   }, []);
-
-  useEffect(() => {
-    if (formData.subject_id) {
-      fetchTopics(formData.subject_id);
-    } else {
-      setTopics([]);
-      setFormData(prev => ({ ...prev, topic_id: '' }));
-    }
-  }, [formData.subject_id]);
 
   const fetchBooks = async () => {
     const res = await fetch('/api/author/books');
@@ -46,14 +37,42 @@ export default function AuthorBooksPage() {
     if (data.success) setSubjects(data.data);
   };
 
-  const fetchTopics = async (subjectId) => {
-    const res = await fetch(`/api/author/topics?subject_id=${subjectId}`);
-    const data = await res.json();
-    if (data.success) setTopics(data.data);
+  const handleAddTopic = () => {
+    if (!formData.subject_id) {
+      alert('Please select a subject first');
+      return;
+    }
+    setFormData({
+      ...formData,
+      topics: [...formData.topics, { name: '' }]
+    });
+  };
+
+  const handleRemoveTopic = (index) => {
+    const newTopics = formData.topics.filter((_, i) => i !== index);
+    setFormData({ ...formData, topics: newTopics });
+  };
+
+  const handleTopicChange = (index, value) => {
+    const newTopics = [...formData.topics];
+    newTopics[index].name = value;
+    setFormData({ ...formData, topics: newTopics });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    if (formData.topics.length === 0) {
+      alert('Please add at least one topic');
+      return;
+    }
+
+    const hasEmptyTopic = formData.topics.some(topic => !topic.name.trim());
+    if (hasEmptyTopic) {
+      alert('Please fill in all topic names');
+      return;
+    }
+
     setLoading(true);
     
     const method = editMode ? 'PUT' : 'POST';
@@ -69,7 +88,7 @@ export default function AuthorBooksPage() {
     
     const data = await res.json();
     if (data.success) {
-      setFormData({ title: '', subject_id: '', topic_id: '' });
+      setFormData({ title: '', subject_id: '', topics: [] });
       setEditMode(false);
       setEditId(null);
       setShowForm(false);
@@ -85,7 +104,7 @@ export default function AuthorBooksPage() {
     setFormData({
       title: book.title,
       subject_id: book.subject_id,
-      topic_id: book.topic_id
+      topics: book.topics || []
     });
     setEditMode(true);
     setEditId(book.id);
@@ -96,12 +115,12 @@ export default function AuthorBooksPage() {
   const handleCancelEdit = () => {
     setEditMode(false);
     setEditId(null);
-    setFormData({ title: '', subject_id: '', topic_id: '' });
+    setFormData({ title: '', subject_id: '', topics: [] });
     setShowForm(false);
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this book? All chapters and pages will also be deleted.')) return;
+    if (!confirm('Are you sure you want to delete this book? All topics, chapters and pages will also be deleted.')) return;
     
     const res = await fetch(`/api/author/books?id=${id}`, { method: 'DELETE' });
     const data = await res.json();
@@ -111,6 +130,13 @@ export default function AuthorBooksPage() {
     } else {
       alert('Error: ' + data.error);
     }
+  };
+
+  const toggleBookExpansion = (bookId) => {
+    setExpandedBooks(prev => ({
+      ...prev,
+      [bookId]: !prev[bookId]
+    }));
   };
 
   const filteredBooks = books.filter(book => {
@@ -179,43 +205,84 @@ export default function AuthorBooksPage() {
                 />
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Subject *
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Subject *
+                </label>
+                <select
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                  value={formData.subject_id}
+                  onChange={(e) => setFormData({ ...formData, subject_id: e.target.value })}
+                  required
+                >
+                  <option value="">Select Subject</option>
+                  {subjects.map((subject) => (
+                    <option key={subject.id} value={subject.id}>{subject.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Topics Section */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Topics * {formData.topics.length > 0 && `(${formData.topics.length})`}
                   </label>
-                  <select
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
-                    value={formData.subject_id}
-                    onChange={(e) => setFormData({ ...formData, subject_id: e.target.value })}
-                    required
+                  <button
+                    type="button"
+                    onClick={handleAddTopic}
+                    disabled={!formData.subject_id}
+                    className="inline-flex items-center px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition text-sm font-medium"
                   >
-                    <option value="">Select Subject</option>
-                    {subjects.map((subject) => (
-                      <option key={subject.id} value={subject.id}>{subject.name}</option>
-                    ))}
-                  </select>
+                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    Add Topic
+                  </button>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Topic *
-                  </label>
-                  <select
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition disabled:bg-gray-100"
-                    value={formData.topic_id}
-                    onChange={(e) => setFormData({ ...formData, topic_id: e.target.value })}
-                    required
-                    disabled={!formData.subject_id}
-                  >
-                    <option value="">
-                      {formData.subject_id ? 'Select Topic' : 'First select a subject'}
-                    </option>
-                    {topics.map((topic) => (
-                      <option key={topic.id} value={topic.id}>{topic.name}</option>
+                {!formData.subject_id && (
+                  <div className="text-sm text-gray-500 italic bg-gray-50 p-3 rounded-lg">
+                    Please select a subject first to add topics
+                  </div>
+                )}
+
+                {formData.subject_id && formData.topics.length === 0 && (
+                  <div className="text-sm text-gray-500 italic bg-gray-50 p-3 rounded-lg">
+                    Click "Add Topic" button to add topics for this book
+                  </div>
+                )}
+
+                {/* Topics List */}
+                {formData.topics.length > 0 && (
+                  <div className="space-y-3 max-h-60 overflow-y-auto">
+                    {formData.topics.map((topic, index) => (
+                      <div key={index} className="flex gap-2 items-center bg-gray-50 p-3 rounded-lg">
+                        <span className="text-sm font-medium text-gray-600 min-w-[30px]">
+                          {index + 1}.
+                        </span>
+                        <input
+                          type="text"
+                          placeholder="Enter topic name"
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                          value={topic.name}
+                          onChange={(e) => handleTopicChange(index, e.target.value)}
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveTopic(index)}
+                          className="p-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition"
+                          title="Remove topic"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
                     ))}
-                  </select>
-                </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-3">
@@ -305,7 +372,7 @@ export default function AuthorBooksPage() {
                 <tr>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Book Title</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Subject</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Topic</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Topics</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Created</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Actions</th>
                 </tr>
@@ -323,65 +390,106 @@ export default function AuthorBooksPage() {
                   </tr>
                 ) : (
                   filteredBooks.map((book) => (
-                    <tr key={book.id} className="hover:bg-gray-50 transition">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold">
-                            {book.title.charAt(0).toUpperCase()}
+                    <>
+                      {/* Main Book Row */}
+                      <tr key={book.id} className="hover:bg-gray-50 transition">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => toggleBookExpansion(book.id)}
+                              className="p-1 hover:bg-gray-200 rounded transition"
+                            >
+                              <svg 
+                                className={`w-5 h-5 text-gray-600 transition-transform ${expandedBooks[book.id] ? 'rotate-90' : ''}`}
+                                fill="none" 
+                                stroke="currentColor" 
+                                viewBox="0 0 24 24"
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                              </svg>
+                            </button>
+                            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold">
+                              {book.title.charAt(0).toUpperCase()}
+                            </div>
+                            <span className="font-medium text-gray-900">{book.title}</span>
                           </div>
-                          <span className="font-medium text-gray-900">{book.title}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="inline-flex items-center px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
-                          {book.subject_name}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="inline-flex items-center px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
-                          {book.topic_name}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-600">
-                        {new Date(book.created_at).toLocaleDateString('en-US', { 
-                          year: 'numeric', 
-                          month: 'short', 
-                          day: 'numeric' 
-                        })}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex gap-2">
-                          <button 
-                            onClick={() => router.push(`/author/chapters/${book.id}`)}
-                            className="inline-flex items-center px-3 py-2 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition text-sm font-medium"
-                            title="Manage Chapters"
-                          >
-                            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                            Chapters
-                          </button>
-                          <button 
-                            onClick={() => handleEdit(book)}
-                            className="inline-flex items-center px-3 py-2 bg-yellow-100 text-yellow-700 rounded-lg hover:bg-yellow-200 transition text-sm font-medium"
-                            title="Edit Book"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                            </svg>
-                          </button>
-                          <button 
-                            onClick={() => handleDelete(book.id)}
-                            className="inline-flex items-center px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition text-sm font-medium"
-                            title="Delete Book"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="inline-flex items-center px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
+                            {book.subject_name}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="inline-flex items-center px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">
+                            {book.topics?.length || 0} Topics
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-600">
+                          {new Date(book.created_at).toLocaleDateString('en-US', { 
+                            year: 'numeric', 
+                            month: 'short', 
+                            day: 'numeric' 
+                          })}
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={() => handleEdit(book)}
+                              className="inline-flex items-center px-3 py-2 bg-yellow-100 text-yellow-700 rounded-lg hover:bg-yellow-200 transition text-sm font-medium"
+                              title="Edit Book"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                              </svg>
+                            </button>
+                            <button 
+                              onClick={() => handleDelete(book.id)}
+                              className="inline-flex items-center px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition text-sm font-medium"
+                              title="Delete Book"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+
+                      {/* Expanded Topics Rows */}
+                      {expandedBooks[book.id] && book.topics && book.topics.length > 0 && (
+                        book.topics.map((topic, idx) => (
+                          <tr key={`topic-${topic.id}`} className="bg-gray-50">
+                            <td className="px-6 py-3" colSpan="2">
+                              <div className="flex items-center gap-3 ml-12">
+                                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-green-500 to-teal-500 flex items-center justify-center text-white font-bold text-sm">
+                                  {idx + 1}
+                                </div>
+                                <span className="text-sm font-medium text-gray-700">{topic.name}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-3">
+                              <span className="inline-flex items-center px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
+                                Topic
+                              </span>
+                            </td>
+                            <td className="px-6 py-3 text-sm text-gray-500">
+                              {topic.subtopic_count || 0} Subtopics
+                            </td>
+                            <td className="px-6 py-3">
+                              <button 
+                                onClick={() => router.push(`/author/subtopics/${book.id}/${topic.id}`)}
+                                className="inline-flex items-center px-3 py-1.5 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition text-sm font-medium"
+                              >
+                                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                                </svg>
+                                Subtopics
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </>
                   ))
                 )}
               </tbody>
@@ -401,60 +509,96 @@ export default function AuthorBooksPage() {
             </div>
           ) : (
             filteredBooks.map((book) => (
-              <div key={book.id} className="bg-white rounded-xl shadow-lg p-6 border border-gray-200">
-                <div className="flex items-start gap-3 mb-4">
-                  <div className="w-14 h-14 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-xl flex-shrink-0">
-                    {book.title.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-gray-900 text-lg mb-2">{book.title}</h3>
-                    <div className="flex flex-wrap gap-2 mb-2">
-                      <span className="inline-flex items-center px-2.5 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
-                        {book.subject_name}
-                      </span>
-                      <span className="inline-flex items-center px-2.5 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
-                        {book.topic_name}
-                      </span>
+              <div key={book.id} className="bg-white rounded-xl shadow-lg border border-gray-200">
+                {/* Book Header */}
+                <div className="p-6 border-b border-gray-200">
+                  <div className="flex items-start gap-3 mb-4">
+                    <div className="w-14 h-14 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-xl flex-shrink-0">
+                      {book.title.charAt(0).toUpperCase()}
                     </div>
-                    <p className="text-sm text-gray-600">
-                      Created {new Date(book.created_at).toLocaleDateString('en-US', { 
-                        year: 'numeric', 
-                        month: 'short', 
-                        day: 'numeric' 
-                      })}
-                    </p>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-900 text-lg mb-2">{book.title}</h3>
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        <span className="inline-flex items-center px-2.5 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
+                          {book.subject_name}
+                        </span>
+                        {book.topics && book.topics.length > 0 && (
+                          <span className="inline-flex items-center px-2.5 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">
+                            {book.topics.length} Topics
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-600">
+                        Created {new Date(book.created_at).toLocaleDateString('en-US', { 
+                          year: 'numeric', 
+                          month: 'short', 
+                          day: 'numeric' 
+                        })}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Book Actions */}
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => toggleBookExpansion(book.id)}
+                      className="flex-1 inline-flex items-center justify-center px-3 py-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition text-sm font-medium"
+                    >
+                      <svg 
+                        className={`w-4 h-4 mr-1 transition-transform ${expandedBooks[book.id] ? 'rotate-90' : ''}`}
+                        fill="none" 
+                        stroke="currentColor" 
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                      {expandedBooks[book.id] ? 'Hide Topics' : 'Show Topics'}
+                    </button>
+                    <button 
+                      onClick={() => handleEdit(book)}
+                      className="px-3 py-2 bg-yellow-100 text-yellow-700 rounded-lg hover:bg-yellow-200 transition"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+                    <button 
+                      onClick={() => handleDelete(book.id)}
+                      className="px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2">
-                  <button 
-                    onClick={() => router.push(`/author/chapters/${book.id}`)}
-                    className="flex flex-col items-center justify-center p-3 bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 transition"
-                  >
-                    <svg className="w-5 h-5 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    <span className="text-xs font-medium">Chapters</span>
-                  </button>
-                  <button 
-                    onClick={() => handleEdit(book)}
-                    className="flex flex-col items-center justify-center p-3 bg-yellow-50 text-yellow-700 rounded-lg hover:bg-yellow-100 transition"
-                  >
-                    <svg className="w-5 h-5 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                    <span className="text-xs font-medium">Edit</span>
-                  </button>
-                  <button 
-                    onClick={() => handleDelete(book.id)}
-                    className="flex flex-col items-center justify-center p-3 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition"
-                  >
-                    <svg className="w-5 h-5 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                    <span className="text-xs font-medium">Delete</span>
-                  </button>
-                </div>
+                {/* Expanded Topics List */}
+                {expandedBooks[book.id] && book.topics && book.topics.length > 0 && (
+                  <div className="p-4 bg-gray-50 space-y-2">
+                    {book.topics.map((topic, idx) => (
+                      <div key={topic.id} className="bg-white rounded-lg p-3 border border-gray-200">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-green-500 to-teal-500 flex items-center justify-center text-white font-bold text-sm">
+                              {idx + 1}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">{topic.name}</p>
+                              <p className="text-xs text-gray-500">{topic.subtopic_count || 0} Subtopics</p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => router.push(`/author/subtopics/${book.id}/${topic.id}`)}
+                            className="px-3 py-1.5 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition text-xs font-medium"
+                          >
+                            Subtopics
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))
           )}

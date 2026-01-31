@@ -1,18 +1,21 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-
 
 export default function PagesPage() {
   const params = useParams();
-  const chapterId = params.chapterId;
-
+  const router = useRouter();
+  const subtopicId = params.subtopicId;
 
   const [pages, setPages] = useState([]);
-  const [chapterTitle, setChapterTitle] = useState('');
+  const [subtopicTitle, setSubtopicTitle] = useState('');
+  const [topicTitle, setTopicTitle] = useState('');
+  const [bookTitle, setBookTitle] = useState('');
   const [bookId, setBookId] = useState(null);
+  const [topicId, setTopicId] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [splitting, setSplitting] = useState(false);
   const [quillLoaded, setQuillLoaded] = useState(false);
   
   const [livePages, setLivePages] = useState([
@@ -25,7 +28,6 @@ export default function PagesPage() {
   const reflowTimeout = useRef(null); // Debounce reflow
   const topRef = useRef(null); // Ref for scrolling to top
 
-
   // A4 EXACT DIMENSIONS (96 DPI standard)
   const PAGE_WIDTH = 794;
   const PAGE_HEIGHT = 1123;
@@ -35,7 +37,6 @@ export default function PagesPage() {
   const CONTENT_HEIGHT = PAGE_HEIGHT - HEADER_HEIGHT - FOOTER_HEIGHT;
   const CONTENT_WIDTH = PAGE_WIDTH - (CONTENT_PADDING * 2);
 
-
   useEffect(() => {
     const loadQuill = async () => {
       const link = document.createElement('link');
@@ -43,18 +44,17 @@ export default function PagesPage() {
       link.rel = 'stylesheet';
       document.head.appendChild(link);
 
-
       const script = document.createElement('script');
       script.src = 'https://cdn.quilljs.com/1.3.6/quill.js';
-      script.onload = () => setQuillLoaded(true);
+      script.onload = () => {
+        setTimeout(() => setQuillLoaded(true), 200);
+      };
       document.body.appendChild(script);
     };
 
-
     loadQuill();
     fetchPages();
-    fetchChapterDetails();
-
+    fetchSubtopicDetails();
 
     return () => {
       Object.values(quillRefs.current).forEach(quill => {
@@ -66,27 +66,33 @@ export default function PagesPage() {
         }
       });
     };
-  }, [chapterId]);
+  }, [subtopicId]);
 
-
-  const fetchChapterDetails = async () => {
-    const res = await fetch(`/api/author/chapters?chapter_id=${chapterId}`);
-    const data = await res.json();
-    if (data.success && data.data.length > 0) {
-      setChapterTitle(data.data[0].title);
-      setBookId(data.data[0].book_id);
+  const fetchSubtopicDetails = async () => {
+    try {
+      // First get the subtopic to find book_id and topic_id
+      const res = await fetch(`/api/author/subtopics/details?subtopic_id=${subtopicId}`);
+      const data = await res.json();
+      
+      if (data.success) {
+        setSubtopicTitle(data.subtopic?.name || '');
+        setTopicTitle(data.topic?.name || '');
+        setBookTitle(data.book?.title || '');
+        setBookId(data.subtopic?.book_id);
+        setTopicId(data.subtopic?.topic_id);
+      }
+    } catch (error) {
+      console.error('Error fetching subtopic details:', error);
     }
   };
 
-
   const fetchPages = async () => {
-    const res = await fetch(`/api/author/pages?chapter_id=${chapterId}`);
+    const res = await fetch(`/api/author/pages?subtopic_id=${subtopicId}`);
     const data = await res.json();
     if (data.success) {
       setPages(data.data);
     }
   };
-
 
   const splitContentIntoPages = (htmlContent) => {
     const tempDiv = document.createElement('div');
@@ -103,16 +109,13 @@ export default function PagesPage() {
     `;
     document.body.appendChild(tempDiv);
 
-
     const pages = [];
     const parser = new DOMParser();
     const doc = parser.parseFromString(`<div>${htmlContent}</div>`, 'text/html');
     const blocks = Array.from(doc.body.querySelector('div').children);
 
-
     let currentPageHTML = '';
     let currentHeight = 0;
-
 
     for (let blockIdx = 0; blockIdx < blocks.length; blockIdx++) {
       const block = blocks[blockIdx];
@@ -123,12 +126,10 @@ export default function PagesPage() {
         blockAttrs += ` ${attr.name}="${attr.value}"`;
       }
 
-
       const blockHTML = `<${tagName}${blockAttrs}>${block.innerHTML}</${tagName}>`;
       const testHTML = currentPageHTML + blockHTML;
       tempDiv.innerHTML = testHTML;
       const testHeight = tempDiv.scrollHeight;
-
 
       if (testHeight > CONTENT_HEIGHT) {
         if (currentPageHTML.trim()) {
@@ -136,14 +137,11 @@ export default function PagesPage() {
           currentPageHTML = '';
         }
 
-
         const sentences = block.innerHTML.split(/(?<=[.!?])\s+/);
         let sentenceBuffer = '';
 
-
         for (let sentence of sentences) {
           if (!sentence.trim()) continue;
-
 
           const testSentence = sentenceBuffer 
             ? `${sentenceBuffer} ${sentence}` 
@@ -151,7 +149,6 @@ export default function PagesPage() {
           
           const testHTML = `<${tagName}${blockAttrs}>${testSentence}</${tagName}>`;
           tempDiv.innerHTML = currentPageHTML + testHTML;
-
 
           if (tempDiv.scrollHeight > CONTENT_HEIGHT) {
             if (sentenceBuffer) {
@@ -167,12 +164,10 @@ export default function PagesPage() {
               const words = sentence.split(/\s+/);
               let wordBuffer = '';
 
-
               for (let word of words) {
                 const testWord = wordBuffer ? `${wordBuffer} ${word}` : word;
                 const testHTML = `<${tagName}${blockAttrs}>${testWord}</${tagName}>`;
                 tempDiv.innerHTML = currentPageHTML + testHTML;
-
 
                 if (tempDiv.scrollHeight > CONTENT_HEIGHT && wordBuffer) {
                   const wordHTML = `<${tagName}${blockAttrs}>${wordBuffer}</${tagName}>`;
@@ -184,7 +179,6 @@ export default function PagesPage() {
                 }
               }
 
-
               if (wordBuffer) {
                 sentenceBuffer = wordBuffer;
               }
@@ -193,7 +187,6 @@ export default function PagesPage() {
             sentenceBuffer = testSentence;
           }
         }
-
 
         if (sentenceBuffer) {
           const finalHTML = `<${tagName}${blockAttrs}>${sentenceBuffer}</${tagName}>`;
@@ -204,23 +197,19 @@ export default function PagesPage() {
       }
     }
 
-
     if (currentPageHTML.trim() && currentPageHTML !== '<p><br></p>') {
       pages.push(currentPageHTML.trim());
     }
 
-
     document.body.removeChild(tempDiv);
     return pages.length > 0 ? pages : [htmlContent];
   };
-
 
   const initQuill = (index) => {
     if (!window.Quill) return;
 
     const editorId = `editor-${index}`;
     
-    // Check if already initialized
     if (initializedEditors.current.has(editorId)) {
       return;
     }
@@ -229,9 +218,7 @@ export default function PagesPage() {
     
     if (!container) return;
 
-    // Clean up existing instance and any duplicate toolbars
     if (quillRefs.current[index]) {
-      // Remove existing toolbar before cleanup
       const parentDiv = container.parentNode;
       if (parentDiv) {
         const existingToolbar = parentDiv.querySelector('.ql-toolbar');
@@ -242,7 +229,6 @@ export default function PagesPage() {
       container.innerHTML = '';
       delete quillRefs.current[index];
     } else {
-      // Even if no quill ref exists, check for orphaned toolbars
       const parentDiv = container.parentNode;
       if (parentDiv) {
         const orphanedToolbars = parentDiv.querySelectorAll('.ql-toolbar');
@@ -269,27 +255,31 @@ export default function PagesPage() {
       placeholder: 'Start typing or paste content...'
     });
 
-
     if (livePages[index]?.content) {
       quill.root.innerHTML = livePages[index].content;
     }
 
-
     quill.clipboard.addMatcher(Node.ELEMENT_NODE, (node, delta) => {
       setTimeout(() => {
         const currentContent = quill.root.innerHTML;
-        const currentHeight = quill.root.scrollHeight;
+        const splitPages = splitContentIntoPages(currentContent);
 
+        if (splitPages.length > 1) {
+          setSplitting(true);
+          
+          quill.root.innerHTML = splitPages[0];
+          updatePageContent(index, splitPages[0]);
 
-        if (currentHeight > CONTENT_HEIGHT) {
-          const splitPages = splitContentIntoPages(currentContent);
-
-
-          if (splitPages.length > 1) {
-            quill.root.innerHTML = splitPages[0];
-            updatePageContent(index, splitPages[0]);
-
-
+          if (livePages.length === 1 && (!livePages[0].content || livePages[0].content.trim() === '' || livePages[0].content === '<p><br></p>')) {
+            const newPages = splitPages.map((pageContent, i) => ({
+              id: `page-${Date.now()}-${i}`,
+              content: pageContent,
+              existingPageId: null
+            }));
+            
+            initializedEditors.current.clear();
+            setLivePages(newPages);
+          } else {
             const newPages = [...livePages];
             for (let i = 1; i < splitPages.length; i++) {
               newPages.splice(index + i, 0, {
@@ -299,42 +289,37 @@ export default function PagesPage() {
               });
             }
 
-            // Clear initialization tracking for new pages
             initializedEditors.current.clear();
             setLivePages(newPages);
+          }
 
-
+          setTimeout(() => {
+            setSplitting(false);
             setTimeout(() => {
               alert(`✅ Content split into ${splitPages.length} A4 pages!`);
-            }, 200);
-          }
+            }, 100);
+          }, 500);
         }
       }, 100);
 
-
       return delta;
     });
-
 
     quill.on('text-change', () => {
       const content = quill.root.innerHTML;
       const editorHeight = quill.root.scrollHeight;
       const fillPercentage = Math.round((editorHeight / CONTENT_HEIGHT) * 100);
       
-      // Clear previous timeout
       if (reflowTimeout.current) {
         clearTimeout(reflowTimeout.current);
       }
       
-      // AUTO-REFLOW: When content exceeds, combine ALL pages and re-split
       if (editorHeight > CONTENT_HEIGHT) {
         reflowTimeout.current = setTimeout(() => {
           setLivePages(prev => {
-            // Update current page with new content first
             const updated = [...prev];
             updated[index] = { ...updated[index], content };
             
-            // Combine ALL pages content
             let allContent = '';
             for (let i = 0; i < updated.length; i++) {
               const pageContent = updated[i].content || '';
@@ -343,10 +328,8 @@ export default function PagesPage() {
               }
             }
             
-            // Fresh split of all content
             const reflowedPages = splitContentIntoPages(allContent);
             
-            // Create completely new pages array
             const newPages = [];
             reflowedPages.forEach((pageContent, i) => {
               newPages.push({
@@ -356,22 +339,11 @@ export default function PagesPage() {
               });
             });
             
-            // Add one blank page at the end
-            if (newPages.length > 0) {
-              const lastPage = newPages[newPages.length - 1];
-              if (lastPage?.content?.trim() && lastPage?.content !== '<p><br></p>') {
-                newPages.push({
-                  id: `page-${Date.now()}-blank`,
-                  content: '',
-                  existingPageId: null
-                });
-              }
-            }
+            // Don't add extra blank page - splitContentIntoPages already handles pagination
             
             return newPages;
           });
           
-          // Clear ALL editors for complete reinitialization
           setTimeout(() => {
             initializedEditors.current.clear();
             Object.keys(quillRefs.current).forEach(key => {
@@ -383,12 +355,11 @@ export default function PagesPage() {
               delete quillRefs.current[key];
             });
           }, 50);
-        }, 300); // 300ms debounce
+        }, 300);
         
         return;
       }
       
-      // Update page content normally when not exceeding
       updatePageContent(index, content);
       
       const pageHeader = document.querySelector(`#editor-${index}`)?.closest('.page-editor-container')?.querySelector('.page-header');
@@ -407,11 +378,9 @@ export default function PagesPage() {
       }
     });
 
-
     quillRefs.current[index] = quill;
-    initializedEditors.current.add(editorId); // Mark as initialized
+    initializedEditors.current.add(editorId);
   };
-
 
   useEffect(() => {
     if (quillLoaded) {
@@ -424,7 +393,6 @@ export default function PagesPage() {
     }
   }, [quillLoaded, livePages.length]);
 
-
   const updatePageContent = (index, content) => {
     setLivePages(prev => {
       const updated = [...prev];
@@ -432,7 +400,6 @@ export default function PagesPage() {
       return updated;
     });
   };
-
 
   const addNewPage = () => {
     const newPage = { id: `page-${Date.now()}`, content: '', existingPageId: null };
@@ -443,7 +410,6 @@ export default function PagesPage() {
       setSelectedPageIndex(livePages.length);
     }, 200);
   };
-
 
   const deletePage = (index) => {
     if (livePages.length === 1) {
@@ -458,20 +424,16 @@ export default function PagesPage() {
       delete quillRefs.current[index];
     }
 
-
     const newPages = livePages.filter((_, i) => i !== index);
     setLivePages(newPages);
-
 
     if (selectedPageIndex >= newPages.length) {
       setSelectedPageIndex(newPages.length - 1);
     }
   };
 
-
   const saveAllPages = async () => {
     setLoading(true);
-
 
     const pagesToSave = livePages
       .map(page => ({
@@ -480,18 +442,15 @@ export default function PagesPage() {
       }))
       .filter(page => page.content && page.content.trim() !== '' && page.content !== '<p><br></p>');
 
-
     if (pagesToSave.length === 0) {
       alert('No content to save!');
       setLoading(false);
       return;
     }
 
-
     let savedCount = 0;
     let updatedCount = 0;
     let failedCount = 0;
-
 
     for (let page of pagesToSave) {
       try {
@@ -505,7 +464,6 @@ export default function PagesPage() {
             })
           });
 
-
           const data = await res.json();
           if (data.success) {
             updatedCount++;
@@ -514,17 +472,15 @@ export default function PagesPage() {
           }
         } else {
           const pageData = {
-            chapter_id: chapterId,
+            subtopic_id: subtopicId,
             content: page.content.trim()
           };
-
 
           const res = await fetch('/api/author/pages', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(pageData)
           });
-
 
           const data = await res.json();
           if (data.success) {
@@ -537,7 +493,6 @@ export default function PagesPage() {
         failedCount++;
       }
     }
-
 
     if (savedCount > 0 || updatedCount > 0) {
       let message = '✅ Success!\n';
@@ -555,7 +510,7 @@ export default function PagesPage() {
       });
       
       quillRefs.current = {};
-      initializedEditors.current.clear(); // Clear tracking
+      initializedEditors.current.clear();
       setLivePages([{ id: `page-${Date.now()}`, content: '', existingPageId: null }]);
       setSelectedPageIndex(0);
       setEditingPageId(null);
@@ -566,10 +521,8 @@ export default function PagesPage() {
       alert('Failed to save pages');
     }
 
-
     setLoading(false);
   };
-
 
   const countWords = (html) => {
     if (typeof window === 'undefined') return 0;
@@ -578,7 +531,6 @@ export default function PagesPage() {
     const text = temp.textContent || temp.innerText || '';
     return text.trim().split(/\s+/).filter(w => w.length > 0).length;
   };
-
 
   const updatePageStatus = (quill, container) => {
     if (!quill || !container) return;
@@ -606,7 +558,6 @@ export default function PagesPage() {
     }
   };
 
-
   const handleEditExistingPage = (page) => {
     if (!page || !page.content) {
       alert('Invalid page data');
@@ -623,8 +574,7 @@ export default function PagesPage() {
       }
     });
     quillRefs.current = {};
-    initializedEditors.current.clear(); // Clear tracking
-
+    initializedEditors.current.clear();
 
     setEditingPageId(page.id);
     setSelectedPageIndex(0);
@@ -637,9 +587,7 @@ export default function PagesPage() {
     
     setLivePages([newPage]);
 
-
     setTimeout(() => {
-      // Scroll to top after state update
       if (topRef.current) {
         topRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
@@ -647,7 +595,6 @@ export default function PagesPage() {
       const container = document.getElementById('editor-0');
       
       if (!container || !window.Quill) return;
-
 
       container.innerHTML = '';
       
@@ -667,9 +614,7 @@ export default function PagesPage() {
         placeholder: 'Edit your content...'
       });
 
-
       quill.root.innerHTML = page.content;
-
 
       quill.on('text-change', () => {
         const content = quill.root.innerHTML;
@@ -679,20 +624,17 @@ export default function PagesPage() {
           return updated;
         });
 
-
         updatePageStatus(quill, container);
       });
 
-
       quillRefs.current[0] = quill;
-      initializedEditors.current.add('editor-0'); // Mark as initialized
+      initializedEditors.current.add('editor-0');
       
       setTimeout(() => {
         updatePageStatus(quill, container);
       }, 100);
     }, 600);
   };
-
 
   const cancelEdit = () => {
     if (confirm('Cancel editing? Unsaved changes will be lost.')) {
@@ -704,7 +646,7 @@ export default function PagesPage() {
       });
       
       quillRefs.current = {};
-      initializedEditors.current.clear(); // Clear tracking
+      initializedEditors.current.clear();
       setLivePages([{ id: `page-${Date.now()}`, content: '', existingPageId: null }]);
       setSelectedPageIndex(0);
       setEditingPageId(null);
@@ -713,10 +655,8 @@ export default function PagesPage() {
     }
   };
 
-
   const handleDeleteExistingPage = async (id) => {
     if (!confirm('Delete this page permanently?')) return;
-
 
     const res = await fetch(`/api/author/pages?id=${id}`, { method: 'DELETE' });
     const data = await res.json();
@@ -728,76 +668,44 @@ export default function PagesPage() {
     }
   };
 
-
   return (
     <>
       <style jsx global>{`
-        /* Responsive container wrapper */
         .page-wrapper {
           width: 100%;
           display: flex;
           justify-content: center;
+          gap: 20px;
+          flex-wrap: wrap;
+          padding: 0 12px;
           margin: 20px 0;
         }
 
-
-        /* A4 Page container with responsive scaling */
         .page-editor-container {
-          width: ${PAGE_WIDTH}px;
-          height: ${PAGE_HEIGHT+40}px;
+          width: 100%;
+          max-width: ${PAGE_WIDTH}px;
+          height: ${PAGE_HEIGHT + 40}px;
           background: white;
           box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
           border-radius: 0;
           overflow: hidden;
           display: flex;
           flex-direction: column;
-          transform-origin: top center;
-          transition: transform 0.3s ease;
+          box-sizing: border-box;
+          transition: box-shadow 0.2s ease;
+          margin: 12px auto;
         }
 
-
-        /* Responsive scaling for mobile devices */
-        @media (max-width: 840px) {
+        /* Mobile: Allow horizontal scroll to see full page */
+        @media (max-width: 820px) {
+          .page-wrapper {
+            overflow-x: auto;
+            justify-content: flex-start;
+          }
           .page-editor-container {
-            transform: scale(0.95);
+            flex-shrink: 0;
           }
         }
-
-
-        @media (max-width: 768px) {
-          .page-editor-container {
-            transform: scale(0.85);
-          }
-        }
-
-
-        @media (max-width: 680px) {
-          .page-editor-container {
-            transform: scale(0.7);
-          }
-        }
-
-
-        @media (max-width: 580px) {
-          .page-editor-container {
-            transform: scale(0.6);
-          }
-        }
-
-
-        @media (max-width: 480px) {
-          .page-editor-container {
-            transform: scale(0.5);
-          }
-        }
-
-
-        @media (max-width: 400px) {
-          .page-editor-container {
-            transform: scale(0.42);
-          }
-        }
-
 
         .page-header {
           height: ${HEADER_HEIGHT}px;
@@ -811,7 +719,6 @@ export default function PagesPage() {
           flex-shrink: 0;
         }
 
-
         .ql-toolbar {
           flex-shrink: 0;
           border-bottom: 1px solid #e5e7eb !important;
@@ -820,17 +727,15 @@ export default function PagesPage() {
           border-top: none !important;
         }
 
-
         .ql-container {
           font-size: 16px !important;
           line-height: 1.6 !important;
-          font-family: 'Georgia', 'Times New Roman', serif !important;
+          font-family: Arial, sans-serif !important;
           height: ${CONTENT_HEIGHT}px !important;
           flex: none !important;
           border: none !important;
           overflow: hidden !important;
         }
-
 
         .ql-editor {
           padding: ${CONTENT_PADDING}px !important;
@@ -838,7 +743,6 @@ export default function PagesPage() {
           height: 100% !important;
           box-sizing: border-box !important;
         }
-
 
         .page-footer {
           height: ${FOOTER_HEIGHT}px;
@@ -851,12 +755,10 @@ export default function PagesPage() {
           flex-shrink: 0;
         }
 
-
         .ql-editor p {
           margin-bottom: 0.8em;
           margin-top: 0;
         }
-
 
         .ql-editor h1,
         .ql-editor h2,
@@ -865,11 +767,9 @@ export default function PagesPage() {
           margin-top: 0.6em;
         }
 
-
         .ql-editor ul, .ql-editor ol {
           margin-bottom: 0.8em;
         }
-
 
         .editing-indicator {
           background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
@@ -880,14 +780,11 @@ export default function PagesPage() {
           animation: pulse 2s ease-in-out infinite;
         }
 
-
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.8; }
         }
 
-
-        /* Print styles for exact A4 */
         @media print {
           .page-editor-container {
             width: 210mm;
@@ -898,26 +795,93 @@ export default function PagesPage() {
             transform: none !important;
           }
         }
-      `}</style>
 
+        .page-editor-container,
+        .page-editor-container * {
+          color: #111827 !important;
+          -webkit-text-fill-color: #111827 !important;
+          color-scheme: light !important;
+        }
+
+        .ql-container {
+          background: white !important;
+          color: #111827 !important;
+        }
+
+        .ql-editor {
+          color: #111827 !important;
+          -webkit-text-fill-color: #111827 !important;
+        }
+
+        .page-header, .page-footer {
+          color: #111827 !important;
+          background: #f9fafb !important;
+        }
+
+        .ql-editor a {
+          color: #1f2937 !important;
+        }
+
+        .mt-16, .mt-16 * {
+          color: #111827 !important;
+          -webkit-text-fill-color: #111827 !important;
+          background-color: transparent !important;
+        }
+
+        .mt-16 .bg-white {
+          background: #ffffff !important;
+          color: #111827 !important;
+        }
+      `}</style>
 
       <div className="min-h-screen bg-gray-50">
         <div ref={topRef} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           
           {/* Breadcrumb */}
           <div className="mb-8">
-            <Link 
-              href={bookId ? `/author/chapters/${bookId}` : '/author/books'}
+            <div className="flex items-center text-sm text-gray-600 space-x-2 mb-4">
+              <button 
+                onClick={() => router.push('/author/books')} 
+                className="hover:text-indigo-600 transition"
+              >
+                📚 Books
+              </button>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+              <button 
+                onClick={() => router.push('/author/books')} 
+                className="hover:text-indigo-600 transition"
+              >
+                {bookTitle || 'Book'}
+              </button>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+              <button 
+                onClick={() => bookId && topicId && router.push(`/author/subtopics/${bookId}/${topicId}`)} 
+                className="hover:text-indigo-600 transition"
+              >
+                {topicTitle || 'Topic'}
+              </button>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+              <span className="text-gray-900 font-semibold">{subtopicTitle || 'Subtopic'}</span>
+            </div>
+
+            <button 
+              onClick={() => bookId && topicId && router.push(`/author/subtopics/${bookId}/${topicId}`)}
               className="inline-flex items-center text-indigo-600 hover:text-indigo-800 transition mb-4 group"
             >
               <svg className="w-5 h-5 mr-2 transition-transform group-hover:-translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
-              Back to Chapters
-            </Link>
+              Back to Subtopics
+            </button>
             
             <h1 className="text-3xl font-bold text-gray-900 mb-2">A4 Page Editor</h1>
-            <p className="text-gray-600">Chapter: <span className="font-semibold text-indigo-600">{chapterTitle || 'Loading...'}</span></p>
+            <p className="text-gray-600">Subtopic: <span className="font-semibold text-indigo-600">{subtopicTitle || 'Loading...'}</span></p>
             <p className="text-sm text-gray-500 mt-1">📄 A4 Size: 210mm × 297mm (794px × 1123px)</p>
             {editingPageId && (
               <div className="mt-3 inline-block editing-indicator">
@@ -925,7 +889,6 @@ export default function PagesPage() {
               </div>
             )}
           </div>
-
 
           {/* Control Panel */}
           <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-xl shadow-lg p-6 mb-8 border border-gray-200">
@@ -972,7 +935,6 @@ export default function PagesPage() {
             </div>
           </div>
 
-
           {/* Editor Loading State */}
           {!quillLoaded ? (
             <div className="flex items-center justify-center p-12 bg-white rounded-xl shadow-lg">
@@ -1013,7 +975,6 @@ export default function PagesPage() {
               ))}
             </div>
           )}
-
 
           {/* Saved Pages Section */}
           <div className="mt-16">
@@ -1078,6 +1039,31 @@ export default function PagesPage() {
             )}
           </div>
         </div>
+
+        {/* Split Loader */}
+        {splitting && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm mx-4">
+              <div className="flex flex-col items-center">
+                <div className="relative">
+                  <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-600"></div>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  </div>
+                </div>
+                <h3 className="mt-6 text-xl font-bold text-gray-900">Splitting Content...</h3>
+                <p className="mt-2 text-sm text-gray-600 text-center">Creating A4 pages from your content</p>
+                <div className="mt-4 flex gap-1">
+                  <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{animationDelay: '0ms'}}></div>
+                  <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{animationDelay: '150ms'}}></div>
+                  <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{animationDelay: '300ms'}}></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

@@ -1,8 +1,9 @@
+// app/api/author/pages/route.js
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { getUser } from '@/lib/auth';
 
-// GET - Fetch pages for a chapter
+// GET - Fetch pages for a subtopic
 export async function GET(request) {
   try {
     const user = await getUser();
@@ -12,35 +13,35 @@ export async function GET(request) {
     }
 
     const { searchParams } = new URL(request.url);
-    const chapter_id = searchParams.get('chapter_id');
+    const subtopic_id = searchParams.get('subtopic_id');
 
-    if (!chapter_id) {
+    if (!subtopic_id) {
       return NextResponse.json(
-        { success: false, error: 'Chapter ID is required' },
+        { success: false, error: 'Subtopic ID is required' },
         { status: 400 }
       );
     }
 
-    // Verify chapter belongs to author
-    const [chapters] = await pool.query(
-      'SELECT id FROM chapters WHERE id = ? AND author_id = ?',
-      [chapter_id, user.id]
+    // Verify subtopic belongs to author
+    const [subtopics] = await pool.query(
+      'SELECT id FROM subtopics WHERE id = ? AND author_id = ?',
+      [subtopic_id, user.id]
     );
 
-    if (chapters.length === 0) {
+    if (subtopics.length === 0) {
       return NextResponse.json(
-        { success: false, error: 'Chapter not found or unauthorized' },
+        { success: false, error: 'Subtopic not found or unauthorized' },
         { status: 403 }
       );
     }
 
-    // Fetch all pages - sirf id, chapter_id, content
+    // Fetch all pages for the subtopic
     const [rows] = await pool.query(
-      `SELECT id, chapter_id, content, created_at
+      `SELECT id, subtopic_id, content, created_at
        FROM pages 
-       WHERE chapter_id = ?
+       WHERE subtopic_id = ?
        ORDER BY id ASC`,
-      [chapter_id]
+      [subtopic_id]
     );
     
     return NextResponse.json({ success: true, data: rows });
@@ -59,31 +60,31 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { chapter_id, content } = await request.json();
+    const { subtopic_id, content } = await request.json();
     
-    if (!chapter_id) {
+    if (!subtopic_id) {
       return NextResponse.json(
-        { success: false, error: 'Chapter ID is required' },
+        { success: false, error: 'Subtopic ID is required' },
         { status: 400 }
       );
     }
 
-    // Verify chapter belongs to author
-    const [chapters] = await pool.query(
-      'SELECT id FROM chapters WHERE id = ? AND author_id = ?',
-      [chapter_id, user.id]
+    // Verify subtopic belongs to author
+    const [subtopics] = await pool.query(
+      'SELECT id FROM subtopics WHERE id = ? AND author_id = ?',
+      [subtopic_id, user.id]
     );
 
-    if (chapters.length === 0) {
+    if (subtopics.length === 0) {
       return NextResponse.json(
-        { success: false, error: 'Chapter not found or unauthorized' },
+        { success: false, error: 'Subtopic not found or unauthorized' },
         { status: 403 }
       );
     }
 
     const [result] = await pool.query(
-      'INSERT INTO pages (chapter_id, content) VALUES (?, ?)',
-      [chapter_id, content || '']
+      'INSERT INTO pages (subtopic_id, content) VALUES (?, ?)',
+      [subtopic_id, content || '']
     );
     
     return NextResponse.json({ 
@@ -114,11 +115,11 @@ export async function PUT(request) {
       );
     }
 
-    // Verify page belongs to author through chapter
+    // Verify page belongs to author through subtopic
     const [pages] = await pool.query(
       `SELECT p.id FROM pages p
-       INNER JOIN chapters c ON p.chapter_id = c.id
-       WHERE p.id = ? AND c.author_id = ?`,
+       INNER JOIN subtopics st ON p.subtopic_id = st.id
+       WHERE p.id = ? AND st.author_id = ?`,
       [id, user.id]
     );
 
@@ -160,11 +161,11 @@ export async function DELETE(request) {
       );
     }
 
-    // Verify page belongs to author through chapter
+    // Verify page belongs to author through subtopic
     const [pages] = await pool.query(
       `SELECT p.id FROM pages p
-       INNER JOIN chapters c ON p.chapter_id = c.id
-       WHERE p.id = ? AND c.author_id = ?`,
+       INNER JOIN subtopics st ON p.subtopic_id = st.id
+       WHERE p.id = ? AND st.author_id = ?`,
       [id, user.id]
     );
 

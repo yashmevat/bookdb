@@ -12,11 +12,9 @@ export async function GET(request, { params }) {
         b.title, 
         b.created_at,
         s.name as subject_name, 
-        t.name as topic_name,
         u.username as author_name
        FROM books b 
        LEFT JOIN subjects s ON b.subject_id = s.id 
-       LEFT JOIN topics t ON b.topic_id = t.id 
        LEFT JOIN users u ON b.author_id = u.id
        WHERE b.id = ?`,
       [bookId]

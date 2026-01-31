@@ -1,201 +1,171 @@
 // app/api/author/books/route.js
 import { NextResponse } from 'next/server';
+import { verifyToken } from '@/lib/auth';
 import pool from '@/lib/db';
-import { getUser } from '@/lib/auth';
 
-// GET - Fetch all books for logged-in author
-export async function GET() {
+export async function POST(req) {
   try {
-    const user = await getUser();
-    
-    if (!user || user.role_id !== 2) {
+    const token = req.cookies.get('token')?.value;
+    if (!token) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    const [rows] = await pool.query(
-      `SELECT b.*, s.name as subject_name, t.name as topic_name 
-       FROM books b 
-       LEFT JOIN subjects s ON b.subject_id = s.id 
-       LEFT JOIN topics t ON b.topic_id = t.id 
-       WHERE b.author_id = ?
-       ORDER BY b.created_at DESC`,
-      [user.id]
-    );
+    const decoded = verifyToken(token);
+    const authorId = decoded.userId;
+
+    const { title, subject_id, topics } = await req.json();
+
+    if (!title || !subject_id || !topics || topics.length === 0) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Title, subject, and at least one topic are required' 
+      }, { status: 400 });
+    }
+
+    const connection = await pool.getConnection();
     
-    return NextResponse.json({ success: true, data: rows });
+    try {
+      await connection.beginTransaction();
+
+      // Insert book
+      const [bookResult] = await connection.query(
+        'INSERT INTO books (title, author_id, subject_id) VALUES (?, ?, ?)',
+        [title, authorId, subject_id]
+      );
+
+      const bookId = bookResult.insertId;
+
+      // Insert all topics
+      for (const topic of topics) {
+        if (topic.name && topic.name.trim()) {
+          await connection.query(
+            'INSERT INTO topics (name, book_id, subject_id) VALUES (?, ?, ?)',
+            [topic.name.trim(), bookId, subject_id]
+          );
+        }
+      }
+
+      await connection.commit();
+
+      return NextResponse.json({ 
+        success: true, 
+        message: 'Book and topics created successfully',
+        bookId 
+      });
+
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+
   } catch (error) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    console.error('Error creating book:', error);
+    return NextResponse.json({ 
+      success: false, 
+      error: 'Failed to create book' 
+    }, { status: 500 });
   }
 }
 
-// POST - Create new book
-export async function POST(request) {
+// app/api/author/books/route.js - Update the GET method
+export async function GET(req) {
   try {
-    const user = await getUser();
-    
-    if (!user || user.role_id !== 2) {
+    const token = req.cookies.get('token')?.value;
+    if (!token) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { title, subject_id, topic_id } = await request.json();
-    
-    // Validate required fields
-    if (!title || !subject_id || !topic_id) {
-      return NextResponse.json(
-        { success: false, error: 'Title, subject_id, and topic_id are required' },
-        { status: 400 }
-      );
+    const decoded = verifyToken(token);
+    const authorId = decoded.userId;
+
+    // Get books with their topics
+    const [books] = await pool.query(`
+      SELECT 
+        b.id,
+        b.title,
+        b.subject_id,
+        b.created_at,
+        s.name as subject_name
+      FROM books b
+      JOIN subjects s ON b.subject_id = s.id
+      WHERE b.author_id = ?
+      ORDER BY b.created_at DESC
+    `, [authorId]);
+
+    // Get topics for each book with subtopic count
+    for (let book of books) {
+      const [topics] = await pool.query(`
+        SELECT 
+          t.id, 
+          t.name,
+          COUNT(st.id) as subtopic_count
+        FROM topics t
+        LEFT JOIN subtopics st ON t.id = st.topic_id
+        WHERE t.book_id = ?
+        GROUP BY t.id
+        ORDER BY t.created_at ASC
+      `, [book.id]);
+      
+      book.topics = topics;
     }
 
-    // Verify author has access to this subject
-    const [subjectCheck] = await pool.query(
-      `SELECT aus.id FROM author_subjects aus 
-       WHERE aus.author_id = ? AND aus.subject_id = ?`,
-      [user.id, subject_id]
-    );
+    return NextResponse.json({ success: true, data: books });
 
-    if (subjectCheck.length === 0) {
-      return NextResponse.json(
-        { success: false, error: 'You do not have access to this subject' },
-        { status: 403 }
-      );
+  } catch (error) {
+    console.error('Error fetching books:', error);
+    return NextResponse.json({ 
+      success: false, 
+      error: 'Failed to fetch books' 
+    }, { status: 500 });
+  }
+}
+
+
+export async function DELETE(req) {
+  try {
+    const token = req.cookies.get('token')?.value;
+    if (!token) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Verify topic belongs to subject
-    const [topicCheck] = await pool.query(
-      'SELECT id FROM topics WHERE id = ? AND subject_id = ?',
-      [topic_id, subject_id]
-    );
+    const decoded = verifyToken(token);
+    const authorId = decoded.userId;
 
-    if (topicCheck.length === 0) {
-      return NextResponse.json(
-        { success: false, error: 'Topic does not belong to selected subject' },
-        { status: 400 }
-      );
+    const { searchParams } = new URL(req.url);
+    const bookId = searchParams.get('id');
+
+    if (!bookId) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Book ID required' 
+      }, { status: 400 });
     }
 
+    // Delete book (topics will be deleted by CASCADE)
     const [result] = await pool.query(
-      'INSERT INTO books (title, author_id, subject_id, topic_id) VALUES (?, ?, ?, ?)',
-      [title, user.id, subject_id, topic_id]
+      'DELETE FROM books WHERE id = ? AND author_id = ?',
+      [bookId, authorId]
     );
-    
+
+    if (result.affectedRows === 0) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Book not found or unauthorized' 
+      }, { status: 404 });
+    }
+
     return NextResponse.json({ 
       success: true, 
-      data: { id: result.insertId, title, subject_id, topic_id } 
+      message: 'Book deleted successfully' 
     });
+
   } catch (error) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-  }
-}
-
-// PUT - Update book
-export async function PUT(request) {
-  try {
-    const user = await getUser();
-    
-    if (!user || user.role_id !== 2) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { id, title, subject_id, topic_id } = await request.json();
-    
-    if (!id || !title || !subject_id || !topic_id) {
-      return NextResponse.json(
-        { success: false, error: 'ID, title, subject_id, and topic_id are required' },
-        { status: 400 }
-      );
-    }
-
-    // Verify book belongs to author
-    const [bookCheck] = await pool.query(
-      'SELECT id FROM books WHERE id = ? AND author_id = ?',
-      [id, user.id]
-    );
-
-    if (bookCheck.length === 0) {
-      return NextResponse.json(
-        { success: false, error: 'Book not found or unauthorized' },
-        { status: 403 }
-      );
-    }
-
-    // Verify author has access to subject
-    const [subjectCheck] = await pool.query(
-      `SELECT aus.id FROM author_subjects aus 
-       WHERE aus.author_id = ? AND aus.subject_id = ?`,
-      [user.id, subject_id]
-    );
-
-    if (subjectCheck.length === 0) {
-      return NextResponse.json(
-        { success: false, error: 'You do not have access to this subject' },
-        { status: 403 }
-      );
-    }
-
-    // Verify topic belongs to subject
-    const [topicCheck] = await pool.query(
-      'SELECT id FROM topics WHERE id = ? AND subject_id = ?',
-      [topic_id, subject_id]
-    );
-
-    if (topicCheck.length === 0) {
-      return NextResponse.json(
-        { success: false, error: 'Topic does not belong to selected subject' },
-        { status: 400 }
-      );
-    }
-    
-    await pool.query(
-      'UPDATE books SET title = ?, subject_id = ?, topic_id = ? WHERE id = ? AND author_id = ?',
-      [title, subject_id, topic_id, id, user.id]
-    );
-    
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-  }
-}
-
-// DELETE - Delete book
-export async function DELETE(request) {
-  try {
-    const user = await getUser();
-    
-    if (!user || user.role_id !== 2) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
-    
-    if (!id) {
-      return NextResponse.json(
-        { success: false, error: 'Book ID is required' },
-        { status: 400 }
-      );
-    }
-
-    // Verify book belongs to author
-    const [bookCheck] = await pool.query(
-      'SELECT id FROM books WHERE id = ? AND author_id = ?',
-      [id, user.id]
-    );
-
-    if (bookCheck.length === 0) {
-      return NextResponse.json(
-        { success: false, error: 'Book not found or unauthorized' },
-        { status: 403 }
-      );
-    }
-
-    await pool.query(
-      'DELETE FROM books WHERE id = ? AND author_id = ?', 
-      [id, user.id]
-    );
-    
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    console.error('Error deleting book:', error);
+    return NextResponse.json({ 
+      success: false, 
+      error: 'Failed to delete book' 
+    }, { status: 500 });
   }
 }

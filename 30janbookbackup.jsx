@@ -1,13 +1,12 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
 
 export default function BookReaderPage() {
   const params = useParams();
   const bookId = params.bookId;
-  const router = useRouter();
 
   const [book, setBook] = useState(null);
   const [topics, setTopics] = useState([]);
@@ -27,8 +26,6 @@ export default function BookReaderPage() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1920);
   const bookContainerRef = useRef(null);
-  const selectionTimerRef = useRef(null);
-  const applyingHighlightsRef = useRef(false);
 
   // Highlight states
   const [highlights, setHighlights] = useState([]);
@@ -54,37 +51,6 @@ export default function BookReaderPage() {
   const A4_HEIGHT = 1300;
   const [maxPageHeight, setMaxPageHeight] = useState(A4_HEIGHT);
   const [fontSizeRef, setFontSizeRef] = useState(fontSize);
-  // Font size slider bounds
-  const FONT_MIN = 10; // allow sizes below 50%
-  const FONT_MAX = 200;
-  const FONT_STEP = 5;
-
-  // Compute slider fill percent for UI and update CSS custom property for font scaling
-  const sliderFill = Math.round(((fontSize - FONT_MIN) / (FONT_MAX - FONT_MIN)) * 100);
-
-  // Helper: estimate scale applied by CSS transform on the container.
-  const getScaleForElement = (el) => {
-    if (!el) return 1;
-    try {
-      const cs = window.getComputedStyle(el);
-      const t = cs.transform;
-      if (!t || t === 'none') return 1;
-      // Use DOMMatrix when available
-      if (typeof DOMMatrixReadOnly !== 'undefined') {
-        const m = new DOMMatrixReadOnly(t);
-        return m.a || 1;
-      }
-      // Fallback parse matrix(a,b,c,d,e,f)
-      const values = t.match(/matrix\(([^)]+)\)/);
-      if (values && values[1]) {
-        const parts = values[1].split(',').map(p => parseFloat(p.trim()));
-        if (parts.length >= 6) return parts[0] || 1;
-      }
-    } catch (err) {
-      // ignore
-    }
-    return 1;
-  };
 
   // Update CSS custom property for font scaling
   useEffect(() => {
@@ -168,43 +134,9 @@ export default function BookReaderPage() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Compensate for CSS transform scaling by adjusting bottom margin of the container.
-  // Apply this compensation always (even when book is closed) so layout doesn't
-  // leave a large gap under the container in single-page/scaled views.
-  useEffect(() => {
-    const el = bookContainerRef.current;
-    if (!el) return;
-
-    const applyCompensation = () => {
-      try {
-        const scale = getScaleForElement(el) || 1;
-        const delta = Math.max(0, Math.round(maxPageHeight - (maxPageHeight * scale)));
-        el.style.marginBottom = delta > 0 ? `-${delta}px` : '';
-      } catch (err) {
-        console.warn('applyCompensation error', err);
-      }
-    };
-
-    // Apply now and on a short delay (renders may change heights)
-    applyCompensation();
-    const t1 = setTimeout(applyCompensation, 60);
-    const t2 = setTimeout(applyCompensation, 300);
-
-    // Also update on window resize (scale may change via media queries)
-    window.addEventListener('resize', applyCompensation);
-
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-      window.removeEventListener('resize', applyCompensation);
-      // Clear inline style when effect cleans up
-      try { el.style.marginBottom = ''; } catch (e) {}
-    };
-  }, [maxPageHeight, windowWidth, fontSize, bookOpened]);
-
   useEffect(() => {
     if (bookId) {
-        fetchAllData();
+      fetchAllData();
       fetchHighlights();
       fetchBookmarks();
     }
@@ -250,13 +182,8 @@ export default function BookReaderPage() {
   const fetchAllData = async () => {
     try {
       const bookRes = await fetch(`/api/books/${bookId}`);
-      if (bookRes.status === 404) {
-        // Book not found -> redirect to home
-        try { router.push('/'); } catch (err) { console.warn('redirect failed', err); }
-        return;
-      }
       const bookData = await bookRes.json();
-      if (bookData && bookData.success) {
+      if (bookData.success) {
         setBook(bookData.data);
       }
 
@@ -289,19 +216,19 @@ export default function BookReaderPage() {
   };
 
   const handleTextSelection = () => {
-    // Small delay removed here; callers will debounce as needed.
-    try {
+    // Small delay to ensure selection is complete
+    setTimeout(() => {
       const selection = window.getSelection();
-      const text = selection?.toString().trim() || '';
+      const text = selection.toString().trim();
 
-      if (text.length > 0 && selection.rangeCount > 0) {
+      if (text.length > 0) {
         const range = selection.getRangeAt(0);
         const rect = range.getBoundingClientRect();
 
         // Detect which page the selection is on
         const selectedElement = range.commonAncestorContainer;
         const pageElement = selectedElement.nodeType === 3
-          ? selectedElement.parentElement?.closest('.book-page')
+          ? selectedElement.parentElement.closest('.book-page')
           : selectedElement.closest('.book-page');
 
         // Check if it's the right page (second page in spread)
@@ -316,10 +243,7 @@ export default function BookReaderPage() {
         });
         setShowColorPicker(true);
       }
-    } catch (err) {
-      // Swallow any selection errors (can happen on some Android browsers)
-      console.warn('Selection handling error', err);
-    }
+    }, 100);
   };
 
   const saveHighlight = async () => {
@@ -380,59 +304,7 @@ export default function BookReaderPage() {
       const data = await response.json();
 
       if (data.success) {
-        const newHighlights = highlights.filter(h => h.id !== highlightId);
-        setHighlights(newHighlights);
-
-        // Immediately remove highlight styling from DOM and from allPages content
-        try {
-          // Remove mark elements from DOM
-          const marks = Array.from(document.querySelectorAll(`mark[data-highlight-id="${highlightId}"]`));
-          marks.forEach(m => {
-            try {
-              const frag = document.createRange().createContextualFragment(m.innerHTML || '');
-              m.replaceWith(frag);
-            } catch (err) {
-              // fallback: remove node
-              m.remove();
-            }
-          });
-
-            // Also strip from allPages HTML so React will render without it immediately.
-            // Use DOM operations (safer than regex) to reliably remove <mark> nodes.
-            if (allPages && allPages.length > 0) {
-              const updated = allPages.map((p) => {
-                if (p.type !== 'content' || !p.content || !p.content.content) return p;
-                try {
-                  const container = document.createElement('div');
-                  container.innerHTML = p.content.content;
-                  const marks = Array.from(container.querySelectorAll(`mark[data-highlight-id="${highlightId}"]`));
-                  if (marks.length === 0) return p;
-
-                  marks.forEach(m => {
-                    try {
-                      const frag = document.createDocumentFragment();
-                      while (m.firstChild) frag.appendChild(m.firstChild);
-                      m.replaceWith(frag);
-                    } catch (e) {
-                      // fallback: remove node
-                      m.remove();
-                    }
-                  });
-
-                  const newHtml = container.innerHTML;
-                  if (newHtml !== p.content.content) {
-                    return { ...p, content: { ...p.content, content: newHtml } };
-                  }
-                } catch (err) {
-                  console.warn('strip mark from page error', err);
-                }
-                return p;
-              });
-              setAllPages(updated);
-            }
-        } catch (err) {
-          console.warn('immediate highlight remove error', err);
-        }
+        setHighlights(highlights.filter(h => h.id !== highlightId));
       } else {
         alert(data.message || 'Failed to delete highlight');
       }
@@ -559,31 +431,14 @@ export default function BookReaderPage() {
   };
 
   useEffect(() => {
-    // Debounced handlers for selection: mouseup is fast, touchend needs more time on Android
     const handleMouseUp = () => {
       setTimeout(handleTextSelection, 10);
     };
 
     const handleTouchEnd = () => {
-      // Android often finalizes selection a bit later; wait longer
-      setTimeout(handleTextSelection, 600);
+      setTimeout(handleTextSelection, 200);
     };
-
-    const handleSelectionChange = () => {
-      // Debounce selection changes so modal opens only after selection is stable
-      if (selectionTimerRef.current) clearTimeout(selectionTimerRef.current);
-      selectionTimerRef.current = setTimeout(() => {
-        try {
-          const sel = window.getSelection()?.toString().trim() || '';
-          if (sel.length > 0) {
-            handleTextSelection();
-          }
-        } catch (err) {
-          console.warn('selection debounce error', err);
-        }
-      }, 500); // wait 500ms of stability
-    };
-
+    
     const handleClick = () => {
       // Re-apply highlights after any click to prevent them from disappearing
       setTimeout(() => {
@@ -594,19 +449,13 @@ export default function BookReaderPage() {
     };
 
     document.addEventListener('mouseup', handleMouseUp);
-    document.addEventListener('touchend', handleTouchEnd, { passive: true });
-    document.addEventListener('selectionchange', handleSelectionChange);
+    document.addEventListener('touchend', handleTouchEnd);
     document.addEventListener('click', handleClick);
 
     return () => {
       document.removeEventListener('mouseup', handleMouseUp);
       document.removeEventListener('touchend', handleTouchEnd);
-      document.removeEventListener('selectionchange', handleSelectionChange);
       document.removeEventListener('click', handleClick);
-      if (selectionTimerRef.current) {
-        clearTimeout(selectionTimerRef.current);
-        selectionTimerRef.current = null;
-      }
     };
   }, [currentPageIndex, highlights, bookOpened]);
 
@@ -627,10 +476,6 @@ export default function BookReaderPage() {
   }, [currentPageIndex, fontSize, isDarkMode, highlights, bookOpened, allPages]);
 
   const applyHighlightsToPage = () => {
-    // Mark that we're applying highlights to avoid reacting to our own DOM mutations
-    // Keep the guard a bit longer to cover React re-renders that may follow.
-    applyingHighlightsRef.current = true;
-    setTimeout(() => { applyingHighlightsRef.current = false; }, 800);
     const currentPageHighlights = highlights.filter(h => {
       if (isMobile) {
         return h.page_index === currentPageIndex;
@@ -666,102 +511,6 @@ export default function BookReaderPage() {
       });
     });
   };
-
-  // Inject highlights directly into `allPages` HTML so React renders them
-  // and they won't be removed by subsequent re-renders. This makes highlights
-  // persistent until explicitly removed from `highlights` state.
-  const injectHighlightsIntoAllPages = (hlList) => {
-    if (!allPages || allPages.length === 0) return;
-
-    const updated = allPages.map((p, idx) => {
-      if (p.type !== 'content' || !p.content || !p.content.content) return p;
-
-      let html = p.content.content;
-
-      const pageHighlights = hlList.filter(h => h.page_index === idx);
-      if (pageHighlights.length === 0) return p;
-
-      pageHighlights.forEach(highlight => {
-        try {
-          // Skip if already injected
-          if (html.includes(`data-highlight-id="${highlight.id}"`)) return;
-
-          const escapedText = highlight.selected_text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const regex = new RegExp(`(?![^<]*>)(?!<mark[^>]*>)(${escapedText})(?!</mark>)`, 'gi');
-          html = html.replace(regex, (match) => `
-            <mark style="background-color: ${highlight.color}; padding: 2px 0; cursor: pointer;" data-highlight-id="${highlight.id}" title="${highlight.title}">${match}</mark>`
-          );
-        } catch (err) {
-          console.warn('inject highlight error', err);
-        }
-      });
-
-      if (html !== p.content.content) {
-        return { ...p, content: { ...p.content, content: html } };
-      }
-      return p;
-    });
-
-    // Only update state when something actually changed to avoid update loops
-    const changed = updated.some((p, i) => {
-      if (!allPages[i] || !allPages[i].content) return true;
-      return updated[i].content.content !== allPages[i].content.content;
-    });
-    if (changed) setAllPages(updated);
-  };
-
-  // Ensure highlights are embedded into pages whenever either list changes
-  useEffect(() => {
-    // Run only when highlights change. injectHighlightsIntoAllPages will read
-    // the current `allPages` and update it only if necessary.
-    if (!highlights || highlights.length === 0) return;
-    if (!allPages || allPages.length === 0) return;
-    injectHighlightsIntoAllPages(highlights);
-  }, [highlights]);
-
-  // Watch for React re-renders / DOM updates and re-apply highlights when content changes
-  useEffect(() => {
-    if (!bookOpened || highlights.length === 0) return;
-
-    const contentElements = Array.from(document.querySelectorAll('.book-content-text'));
-    if (contentElements.length === 0) return;
-
-    let obsTimer = null;
-    const observer = new MutationObserver((mutations) => {
-      if (applyingHighlightsRef.current) return;
-
-      // Determine if any mutation removed nodes or removed/changed mark elements
-      const meaningful = mutations.some(m => {
-        if (m.type === 'childList') {
-          if (m.removedNodes && m.removedNodes.length > 0) return true;
-          if (m.addedNodes && m.addedNodes.length > 0) return true;
-        }
-        if (m.type === 'characterData') return true;
-        return false;
-      });
-
-      if (!meaningful) return;
-
-      if (obsTimer) clearTimeout(obsTimer);
-      // Debounce longer to avoid rapid remove/add flicker
-      obsTimer = setTimeout(() => {
-        try {
-          applyHighlightsToPage();
-        } catch (err) {
-          console.warn('reapply highlights error', err);
-        }
-      }, 450);
-    });
-
-    contentElements.forEach(el => {
-      observer.observe(el, { childList: true, subtree: true, characterData: true });
-    });
-
-    return () => {
-      if (obsTimer) clearTimeout(obsTimer);
-      observer.disconnect();
-    };
-  }, [bookOpened, highlights, currentPageIndex, fontSize, isDarkMode, allPages]);
 
   const fetchAllPages = async (topicsList) => {
     try {
@@ -1170,15 +919,10 @@ export default function BookReaderPage() {
   const leftPage = allPages[leftPageIndex];
   const rightPage = !isMobile ? allPages[rightPageIndex] : null;
 
-  const nextLeftPageIndex = isMobile ? currentPageIndex + 1 : currentPageIndex + 2;
-  const nextRightPageIndex = !isMobile ? currentPageIndex + 3 : null;
-  const prevLeftPageIndex = isMobile ? currentPageIndex - 1 : currentPageIndex - 2;
-  const prevRightPageIndex = !isMobile ? currentPageIndex - 1 : null;
-
-  const nextLeftPage = allPages[nextLeftPageIndex];
-  const nextRightPage = nextRightPageIndex !== null ? allPages[nextRightPageIndex] : null;
-  const prevLeftPage = allPages[prevLeftPageIndex];
-  const prevRightPage = prevRightPageIndex !== null ? allPages[prevRightPageIndex] : null;
+  const nextLeftPage = isMobile ? allPages[currentPageIndex + 1] : allPages[currentPageIndex + 2];
+  const nextRightPage = !isMobile ? allPages[currentPageIndex + 3] : null;
+  const prevLeftPage = isMobile ? allPages[currentPageIndex - 1] : allPages[currentPageIndex - 2];
+  const prevRightPage = !isMobile ? allPages[currentPageIndex - 1] : null;
 
   const dragOffset = isDragging && canDrag ? dragCurrentX - dragStartX : 0;
 
@@ -1205,30 +949,21 @@ export default function BookReaderPage() {
 
   /* Desktop - Two page spread with scaling */
   
+  @media (min-width: 1024px) {
+    .book-spread-container {
+      transform: scale(0.7);
+      transform-origin: center top;
+      max-width: 100%;
+    }
+  }
 
-  
-  @media (min-width: 1451px) {
-    .book-spread-container {
-      transform: scale(1);
-      transform-origin: center top;
-      max-width: 70%;
-    }
-  }
-      @media (min-width: 1024px) and (max-width: 1450px) {
-    .book-spread-container {
-      transform: scale(1);
-      transform-origin: center top;
-      max-width: ${A4_WIDTH +200}px;
-      padding: 0 5px;
-    }
-  }
-  
   /* Tablet - Single page centered */
   @media (min-width: 768px) and (max-width: 1023px) {
     .book-spread-container {
       transform: scale(0.8);
       transform-origin: center top;
       max-width: ${A4_WIDTH}px;
+      padding: 0 20px;
     }
   }
 
@@ -1258,6 +993,7 @@ export default function BookReaderPage() {
       transform: scale(0.6);
       transform-origin: center top;
       max-width: ${A4_WIDTH}px;
+      padding: 0 10px;
     }
   }
 
@@ -1682,7 +1418,7 @@ export default function BookReaderPage() {
 
 
 
-  <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'bg-[#1A1A1A]' : 'bg-[#F4F1EA]'}`}>
+      <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'bg-[#1A1A1A]' : 'bg-[#F4F1EA]'}`}>
         {/* Top Navbar - Fully Responsive */}
         <div className={`sticky top-0 z-50 transition-colors duration-300 shadow-sm ${isDarkMode ? 'bg-[#2A2A2A] border-b border-gray-700' : 'bg-white border-b border-gray-200'}`}>
           <div className="max-w-full mx-auto px-2 sm:px-4 md:px-6 py-2 md:py-3">
@@ -1749,14 +1485,14 @@ export default function BookReaderPage() {
                       <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Font:</span>
                       <input
                         type="range"
-                        min={FONT_MIN}
-                        max={FONT_MAX}
-                        step={FONT_STEP}
+                        min="50"
+                        max="200"
+                        step="10"
                         value={fontSize}
                         onChange={(e) => setFontSize(parseInt(e.target.value))}
                         className="w-32 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                         style={{
-                          background: `linear-gradient(to right, #10B981 0%, #10B981 ${sliderFill}%, #E5E7EB ${sliderFill}%, #E5E7EB 100%)`
+                          background: `linear-gradient(to right, #10B981 0%, #10B981 ${((fontSize - 50) / 150) * 100}%, #E5E7EB ${((fontSize - 50) / 150) * 100}%, #E5E7EB 100%)`
                         }}
                       />
                       <span className={`text-xs w-8 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{fontSize}%</span>
@@ -1851,7 +1587,7 @@ export default function BookReaderPage() {
 
 
         {/* Book Content Area */}
-        <div className="flex justify-center items-start px-2 sm:px-4 py-4 sm:py-8 min-h-0">
+        <div className="flex justify-center items-center px-2 sm:px-4 py-4 sm:py-8 min-h-[calc(100vh-60px)]">
           {!bookOpened ? (
             <div className="book-closed" onClick={openBook}>
               <div className="book-page" style={{ width: `${A4_WIDTH}px`, height: `${A4_HEIGHT}px` }}>
@@ -1879,30 +1615,22 @@ export default function BookReaderPage() {
                     <div className="book-page" style={{ width: `${A4_WIDTH}px`, height: `${maxPageHeight}px` }}>
                       <PageContent
                         page={nextLeftPage}
-                        pageIndex={nextLeftPageIndex}
                         pageNumber={currentPageIndex + (isMobile ? 2 : 3)}
-                        highlights={highlights}
                         onChapterClick={goToPage}
                         book={book}
                         isDarkMode={isDarkMode}
                         setIsDarkMode={setIsDarkMode}
-                        isMobile={isMobile}
-                        currentPageIndex={currentPageIndex}
                       />
                     </div>
                     {nextRightPage && !isMobile && (
                       <div className="book-page" style={{ width: `${A4_WIDTH}px`, height: `${maxPageHeight}px` }}>
                         <PageContent
                           page={nextRightPage}
-                          pageIndex={nextRightPageIndex}
                           pageNumber={currentPageIndex + 4}
-                          highlights={highlights}
                           onChapterClick={goToPage}
                           book={book}
                           isDarkMode={isDarkMode}
                           setIsDarkMode={setIsDarkMode}
-                          isMobile={isMobile}
-                          currentPageIndex={currentPageIndex}
                         />
                       </div>
                     )}
@@ -1914,34 +1642,26 @@ export default function BookReaderPage() {
                     <div className="book-page" style={{ width: `${A4_WIDTH}px`, height: `${maxPageHeight}px` }}>
                       <PageContent
                         page={prevLeftPage}
-                        pageIndex={prevLeftPageIndex}
                         pageNumber={currentPageIndex - (isMobile ? 0 : 1)}
-                        highlights={highlights}
                         onChapterClick={goToPage}
                         book={book}
 
                         isDarkMode={isDarkMode}
                         setIsDarkMode={setIsDarkMode}
-                        isMobile={isMobile}
-                        currentPageIndex={currentPageIndex}
                       />
                     </div>
                     {prevRightPage && !isMobile && (
                       <div className="book-page" style={{ width: `${A4_WIDTH}px`, height: `${maxPageHeight}px` }}>
-                          <PageContent
-                            page={prevRightPage}
-                            pageIndex={prevRightPageIndex}
-                            pageNumber={currentPageIndex}
-                            highlights={highlights}
-                            onChapterClick={goToPage}
-                            book={book}
+                        <PageContent
+                          page={prevRightPage}
+                          pageNumber={currentPageIndex}
+                          onChapterClick={goToPage}
+                          book={book}
 
-                            isDarkMode={isDarkMode}
-                            setIsDarkMode={setIsDarkMode}
-                            isMobile={isMobile}
-                            currentPageIndex={currentPageIndex}
-                          />
-                        </div>
+                          isDarkMode={isDarkMode}
+                          setIsDarkMode={setIsDarkMode}
+                        />
+                      </div>
                     )}
                   </>
                 )}
@@ -1961,16 +1681,12 @@ export default function BookReaderPage() {
                   >
                     <PageContent
                       page={leftPage}
-                      pageIndex={leftPageIndex}
                       pageNumber={leftPageIndex + 1}
-                      highlights={highlights}
                       onChapterClick={goToPage}
                       book={book}
 
                       isDarkMode={isDarkMode}
                       setIsDarkMode={setIsDarkMode}
-                      isMobile={isMobile}
-                      currentPageIndex={currentPageIndex}
                     />
                   </div>
                 )}
@@ -1988,16 +1704,12 @@ export default function BookReaderPage() {
                   >
                     <PageContent
                       page={rightPage}
-                      pageIndex={rightPageIndex}
                       pageNumber={rightPageIndex + 1}
-                      highlights={highlights}
                       onChapterClick={goToPage}
                       book={book}
 
                       isDarkMode={isDarkMode}
                       setIsDarkMode={setIsDarkMode}
-                      isMobile={isMobile}
-                      currentPageIndex={currentPageIndex}
                     />
                   </div>
                 )}
@@ -2036,7 +1748,7 @@ export default function BookReaderPage() {
                   </button>
                 )}
               </div>
-              <p className={`text-center mt-6 text-lg ${isDarkMode ? 'text-white' : 'text-black'}`}>
+              <p className="text-black text-center mt-6 text-lg">
                 Drag to Flip Pages
               </p>
 
@@ -2051,36 +1763,36 @@ export default function BookReaderPage() {
                       My Highlights ({highlights.length})
                     </h3>
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
                     {highlights.map((highlight) => (
                       <div
                         key={highlight.id}
-                        className={`group relative px-3 py-2 rounded-lg shadow-sm cursor-pointer transition-all hover:shadow-md ${
+                        className={`p-3 rounded-lg shadow-sm cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 ${
                           isDarkMode ? 'bg-gray-800 hover:bg-gray-750' : 'bg-white hover:bg-gray-50'
                         }`}
-                        style={{ borderTop: `2px solid ${highlight.color}` }}
+                        style={{ borderTop: `3px solid ${highlight.color}` }}
                         onClick={() => goToHighlight(highlight.page_index)}
                       >
-                        <div className="flex items-start gap-2 mb-1">
-                          <div className="w-2 h-2 rounded-full mt-1" style={{ backgroundColor: highlight.color }}></div>
-                          <h4 className="font-semibold text-xs line-clamp-2 flex-1">{highlight.title}</h4>
+                        <div className="flex items-start gap-2 mb-2">
+                          <div className="w-2 h-2 rounded-full mt-1.5" style={{ backgroundColor: highlight.color }}></div>
+                          <h4 className="font-semibold text-sm line-clamp-2 flex-1">{highlight.title}</h4>
                         </div>
-                        <p className={`text-xs mb-1 line-clamp-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                        <p className={`text-xs mb-2 line-clamp-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                           "{highlight.selected_text}"
                         </p>
                         <div className="flex items-center justify-between">
-                          <span className={`text-[11px] font-medium ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                            P {highlight.page_index + 1}
+                          <span className={`text-xs font-medium ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                            Page {highlight.page_index + 1}
                           </span>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               deleteHighlight(highlight.id);
                             }}
-                            className="text-red-500 hover:text-red-700 p-0.5 ml-2"
+                            className="text-red-500 hover:text-red-700 p-1"
                             title="Delete"
                           >
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                             </svg>
                           </button>
@@ -2139,7 +1851,7 @@ export default function BookReaderPage() {
             </div>
           )}
         </div>
-  </div>
+      </div>
 
       {/* Bookmark Choice Modal (Desktop) */}
       {showBookmarkModal && !isMobile && (
@@ -2309,7 +2021,7 @@ export default function BookReaderPage() {
 }
 
 // Page Content Component (EXACT SAME AS YOUR ORIGINAL)
-function PageContent({ page, pageIndex, pageNumber, highlights, onChapterClick, book, isDarkMode, setIsDarkMode, isMobile, currentPageIndex }) {
+function PageContent({ page, pageNumber, onChapterClick, book, isDarkMode, setIsDarkMode }) {
   if (page.type === 'cover') {
     return <CoverPage book={book} />;
   }
@@ -2334,7 +2046,7 @@ function PageContent({ page, pageIndex, pageNumber, highlights, onChapterClick, 
     return <ChapterTitlePage chapter={page.content} pageNumber={pageNumber} isDarkMode={isDarkMode} setIsDarkMode={setIsDarkMode} />;
   }
   if (page.type === 'content') {
-    return <ContentPage page={page.content} pageIndex={pageIndex} highlights={highlights} chapterTitle={page.topicTitle} subtopicTitle={page.subtopicTitle} pageNumber={pageNumber} isDarkMode={isDarkMode} setIsDarkMode={setIsDarkMode} isMobile={isMobile} currentPageIndex={currentPageIndex} />;
+    return <ContentPage page={page.content} chapterTitle={page.topicTitle} subtopicTitle={page.subtopicTitle} pageNumber={pageNumber} isDarkMode={isDarkMode} setIsDarkMode={setIsDarkMode} />;
   }
   if (page.type === 'back-cover') {
     return <BackCoverPage book={book} />;
@@ -2626,34 +2338,11 @@ function SubtopicTitlePage({ subtopic, topicTitle, pageNumber, isDarkMode }) {
 }
 
 
-function ContentPage({ page, pageIndex, highlights, chapterTitle, pageNumber, isDarkMode }) {
+function ContentPage({ page, chapterTitle, pageNumber, isDarkMode }) {
   // Header and footer heights
   const HEADER_HEIGHT = 60;
   const FOOTER_HEIGHT = 50;
-  // Prepare HTML content and inject highlights for this page synchronously
-  let htmlContent = page.content || `<p class="${isDarkMode ? 'text-gray-500' : 'text-gray-400'} italic text-center mt-20">No content available</p>`;
 
-  try {
-    if (highlights && highlights.length > 0 && typeof pageIndex === 'number') {
-      const pageHighlights = highlights.filter(h => h.page_index === pageIndex);
-      if (pageHighlights.length > 0) {
-        pageHighlights.forEach(highlight => {
-          try {
-            if (htmlContent.includes(`data-highlight-id="${highlight.id}"`)) return;
-            const escapedText = (highlight.selected_text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const regex = new RegExp(`(?![^<]*>)(?!<mark[^>]*>)(${escapedText})(?!</mark>)`, 'gi');
-            htmlContent = htmlContent.replace(regex, (match) => `
-              <mark style="background-color: ${highlight.color}; padding: 2px 0; cursor: pointer;" data-highlight-id="${highlight.id}" title="${highlight.title}">${match}</mark>`
-            );
-          } catch (err) {
-            console.warn('inject highlight (page) error', err);
-          }
-        });
-      }
-    }
-  } catch (err) {
-    console.warn('prepare highlights error', err);
-  }
   return (
     <div
       className={`page-inner bg-gradient-to-br ${isDarkMode ? 'bg-[#2A2A2A] text-gray-200' : 'bg-[#F4F1EA] text-gray-800'
@@ -2682,8 +2371,14 @@ function ContentPage({ page, pageIndex, highlights, chapterTitle, pageNumber, is
           }`}
       >
         <div
-          className={`book-content-text select-text ${isDarkMode ? 'dark-book-content' : ''}`}
-          dangerouslySetInnerHTML={{ __html: htmlContent }}
+          className={`book-content-text select-text ${isDarkMode ? 'dark-book-content' : ''
+            }`}
+          dangerouslySetInnerHTML={{
+            __html:
+              page.content ||
+              `<p class="${isDarkMode ? 'text-gray-500' : 'text-gray-400'
+              } italic text-center mt-20">No content available</p>`,
+          }}
         />
 
       </div>
